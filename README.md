@@ -45,9 +45,11 @@ Windows, and `~/Library/Application Support/duplicacy-py` on macOS. Linux also
 honors `XDG_CONFIG_HOME` when it is set.
 
 The console command is declared in `pyproject.toml` and points to the
-`duplicacy_scripts.main:main` entry point. The implementation lives in
-`src/duplicacy_scripts/main.py`, with shared CLI-driving helpers in
-`src/duplicacy_scripts/cli.py`.
+`duplicacy_scripts.main:main` entry point. The entry point assembles the
+parser and dispatches; each subcommand lives in its own internal module under
+`src/duplicacy_scripts/commands/` (`backup.py`, `list.py`, `prune.py`,
+`config.py`), registered in that package's `COMMANDS` table, with shared
+CLI-driving helpers in the internal module `src/duplicacy_scripts/_cli.py`.
 
 ## Development
 

@@ -1,4 +1,9 @@
-"""Tests for `duplicacy_scripts.main`."""
+"""Tests for the `duplicacy-py` entry point and its command modules.
+
+The command modules call the shared helpers through the internal
+`duplicacy_scripts._cli` module, so tests stub them there; the interactive
+prune picker is stubbed on `duplicacy_scripts.commands.prune`.
+"""
 
 from __future__ import annotations
 
@@ -6,8 +11,9 @@ from pathlib import Path
 
 import pytest
 
-from duplicacy_scripts import cli
+from duplicacy_scripts import _cli
 from duplicacy_scripts import main as duplicacy
+from duplicacy_scripts.commands import prune as prune_command
 
 
 FAKE_DUPLICACY = "/fake/duplicacy"
@@ -15,7 +21,7 @@ FAKE_DUPLICACY = "/fake/duplicacy"
 
 @pytest.fixture()
 def fake_executable(monkeypatch: pytest.MonkeyPatch) -> str:
-    monkeypatch.setattr(duplicacy, "resolve_executable", lambda config_dir=None: FAKE_DUPLICACY)
+    monkeypatch.setattr(_cli, "resolve_executable", lambda config_dir=None: FAKE_DUPLICACY)
     return FAKE_DUPLICACY
 
 
@@ -78,15 +84,15 @@ class TestMain:
     ) -> None:
         captured: dict[str, object] = {}
 
-        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> cli.CliResult:
+        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> _cli.CliResult:
             captured["args"] = args_list
             captured["cwd"] = cwd
             preferences = tmp_path / "repo" / ".duplicacy" / "preferences"
             preferences.parent.mkdir(parents=True)
             preferences.write_text("")
-            return cli.CliResult(args=args_list, returncode=0, stdout="Repository initialized\n", stderr="")
+            return _cli.CliResult(args=args_list, returncode=0, stdout="Repository initialized\n", stderr="")
 
-        monkeypatch.setattr(duplicacy, "run_cli", fake_run_cli)
+        monkeypatch.setattr(_cli, "run_cli", fake_run_cli)
 
         argv = ["config", "init", "--config", str(tmp_path), "--storage", "/tmp/storage"]
         assert duplicacy.main(argv) == 0
@@ -107,13 +113,13 @@ class TestMain:
     ) -> None:
         (tmp_path / "config.yaml").write_text("duplicacy: /opt/duplicacy\n")
 
-        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> cli.CliResult:
+        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> _cli.CliResult:
             preferences = tmp_path / "repo" / ".duplicacy" / "preferences"
             preferences.parent.mkdir(parents=True)
             preferences.write_text("")
-            return cli.CliResult(args=args_list, returncode=0, stdout="Repository initialized\n", stderr="")
+            return _cli.CliResult(args=args_list, returncode=0, stdout="Repository initialized\n", stderr="")
 
-        monkeypatch.setattr(duplicacy, "run_cli", fake_run_cli)
+        monkeypatch.setattr(_cli, "run_cli", fake_run_cli)
 
         argv = ["config", "init", "--config", str(tmp_path), "--storage", "/tmp/storage"]
         assert duplicacy.main(argv) == 0
@@ -131,10 +137,10 @@ class TestMain:
         preferences.parent.mkdir(parents=True)
         preferences.write_text("")
 
-        def fail_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> cli.CliResult:
+        def fail_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> _cli.CliResult:
             raise AssertionError("duplicacy init should not run for an already initialized repository")
 
-        monkeypatch.setattr(duplicacy, "run_cli", fail_run_cli)
+        monkeypatch.setattr(_cli, "run_cli", fail_run_cli)
 
         argv = ["config", "init", "--config", str(tmp_path), "--storage", "/tmp/storage"]
         assert duplicacy.main(argv) == 0
@@ -160,12 +166,12 @@ class TestMain:
         (Path(argv[argv.index("--config") + 1]) / "repo").mkdir(parents=True, exist_ok=True)
         captured: dict[str, object] = {}
 
-        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> cli.CliResult:
+        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> _cli.CliResult:
             captured["args"] = args_list
             captured["cwd"] = cwd
-            return cli.CliResult(args=args_list, returncode=0, stdout=output, stderr="")
+            return _cli.CliResult(args=args_list, returncode=0, stdout=output, stderr="")
 
-        monkeypatch.setattr(duplicacy, "run_cli", fake_run_cli)
+        monkeypatch.setattr(_cli, "run_cli", fake_run_cli)
 
         assert duplicacy.main(argv) == 0
         assert captured["args"] == [fake_executable, *expected_args]
@@ -178,10 +184,10 @@ class TestMain:
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> cli.CliResult:
-            raise cli.CliError(args_list, 1, "Repository has not been initialized")
+        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> _cli.CliResult:
+            raise _cli.CliError(args_list, 1, "Repository has not been initialized")
 
-        monkeypatch.setattr(duplicacy, "run_cli", fake_run_cli)
+        monkeypatch.setattr(_cli, "run_cli", fake_run_cli)
 
         assert duplicacy.main(["backup"]) == 1
         assert "Repository has not been initialized" in capsys.readouterr().err
@@ -193,10 +199,10 @@ class TestMain:
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
     ) -> None:
-        def fail_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> cli.CliResult:
+        def fail_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> _cli.CliResult:
             raise AssertionError("the duplicacy CLI should not run without a repository directory")
 
-        monkeypatch.setattr(duplicacy, "run_cli", fail_run_cli)
+        monkeypatch.setattr(_cli, "run_cli", fail_run_cli)
 
         config_dir = tmp_path / "settings"
         config_dir.mkdir()
@@ -225,16 +231,16 @@ class TestMain:
         (tmp_path / "repo").mkdir()
         captured: dict[str, object] = {}
 
-        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> cli.CliResult:
+        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> _cli.CliResult:
             captured["args"] = args_list
             captured["cwd"] = cwd
             if args_list[1:3] == ["list", "-all"]:
-                return cli.CliResult(args=args_list, returncode=0, stdout=snapshot_list_output, stderr="")
-            return cli.CliResult(args=args_list, returncode=0, stdout="Snapshot vm revision 5 created at 2026-01-01 10:00\n", stderr="")
+                return _cli.CliResult(args=args_list, returncode=0, stdout=snapshot_list_output, stderr="")
+            return _cli.CliResult(args=args_list, returncode=0, stdout="Snapshot vm revision 5 created at 2026-01-01 10:00\n", stderr="")
 
-        monkeypatch.setattr(duplicacy, "run_cli", fake_run_cli)
-        monkeypatch.setattr(duplicacy.sys.stdin, "isatty", lambda: True)
-        monkeypatch.setattr(duplicacy, "select_option", lambda message, choices: "vm")
+        monkeypatch.setattr(_cli, "run_cli", fake_run_cli)
+        monkeypatch.setattr(prune_command.sys.stdin, "isatty", lambda: True)
+        monkeypatch.setattr(prune_command, "select_option", lambda message, choices: "vm")
 
         assert duplicacy.main(["prune", "--config", str(tmp_path)]) == 0
         assert captured["args"] == [fake_executable, "list", "-id", "vm"]
@@ -251,14 +257,14 @@ class TestMain:
     ) -> None:
         (tmp_path / "repo").mkdir()
 
-        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> cli.CliResult:
+        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> _cli.CliResult:
             if args_list[1:3] == ["list", "-all"]:
-                return cli.CliResult(args=args_list, returncode=0, stdout=snapshot_list_output, stderr="")
+                return _cli.CliResult(args=args_list, returncode=0, stdout=snapshot_list_output, stderr="")
             raise AssertionError("the duplicacy CLI should not run after a cancelled selection")
 
-        monkeypatch.setattr(duplicacy, "run_cli", fake_run_cli)
-        monkeypatch.setattr(duplicacy.sys.stdin, "isatty", lambda: True)
-        monkeypatch.setattr(duplicacy, "select_option", lambda message, choices: None)
+        monkeypatch.setattr(_cli, "run_cli", fake_run_cli)
+        monkeypatch.setattr(prune_command.sys.stdin, "isatty", lambda: True)
+        monkeypatch.setattr(prune_command, "select_option", lambda message, choices: None)
 
         assert duplicacy.main(["prune", "--config", str(tmp_path)]) == 1
         assert capsys.readouterr().out == ""
@@ -273,13 +279,13 @@ class TestMain:
     ) -> None:
         (tmp_path / "repo").mkdir()
 
-        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> cli.CliResult:
+        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> _cli.CliResult:
             if args_list[1:3] == ["list", "-all"]:
-                return cli.CliResult(args=args_list, returncode=0, stdout=snapshot_list_output, stderr="")
+                return _cli.CliResult(args=args_list, returncode=0, stdout=snapshot_list_output, stderr="")
             raise AssertionError("the picker should not be offered when stdin is not interactive")
 
-        monkeypatch.setattr(duplicacy, "run_cli", fake_run_cli)
-        monkeypatch.setattr(duplicacy.sys.stdin, "isatty", lambda: False)
+        monkeypatch.setattr(_cli, "run_cli", fake_run_cli)
+        monkeypatch.setattr(prune_command.sys.stdin, "isatty", lambda: False)
 
         assert duplicacy.main(["prune", "--config", str(tmp_path)]) == 1
         error = capsys.readouterr().err
@@ -295,11 +301,11 @@ class TestMain:
     ) -> None:
         (tmp_path / "repo").mkdir()
 
-        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> cli.CliResult:
-            return cli.CliResult(args=args_list, returncode=0, stdout="Storage set to /tmp/storage\n", stderr="")
+        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> _cli.CliResult:
+            return _cli.CliResult(args=args_list, returncode=0, stdout="Storage set to /tmp/storage\n", stderr="")
 
-        monkeypatch.setattr(duplicacy, "run_cli", fake_run_cli)
-        monkeypatch.setattr(duplicacy.sys.stdin, "isatty", lambda: True)
+        monkeypatch.setattr(_cli, "run_cli", fake_run_cli)
+        monkeypatch.setattr(prune_command.sys.stdin, "isatty", lambda: True)
 
         assert duplicacy.main(["prune", "--config", str(tmp_path)]) == 1
         assert "No snapshots found in the repository" in capsys.readouterr().err
@@ -321,12 +327,12 @@ class TestMain:
             "Snapshot vm revision 6 created at 2026-01-04 13:00\n"
         )
 
-        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> cli.CliResult:
+        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> _cli.CliResult:
             captured["args"] = args_list
             captured["cwd"] = cwd
-            return cli.CliResult(args=args_list, returncode=0, stdout=list_output, stderr="")
+            return _cli.CliResult(args=args_list, returncode=0, stdout=list_output, stderr="")
 
-        monkeypatch.setattr(duplicacy, "run_cli", fake_run_cli)
+        monkeypatch.setattr(_cli, "run_cli", fake_run_cli)
 
         argv = ["list", "--config", str(tmp_path)]
         assert duplicacy.main(argv) == 0
@@ -343,10 +349,10 @@ class TestMain:
     ) -> None:
         (tmp_path / "repo").mkdir()
 
-        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> cli.CliResult:
-            raise cli.CliError(args_list, 1, "Storage is not reachable")
+        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> _cli.CliResult:
+            raise _cli.CliError(args_list, 1, "Storage is not reachable")
 
-        monkeypatch.setattr(duplicacy, "run_cli", fake_run_cli)
+        monkeypatch.setattr(_cli, "run_cli", fake_run_cli)
 
         argv = ["list", "--config", str(tmp_path)]
         assert duplicacy.main(argv) == 1
@@ -361,10 +367,10 @@ class TestMain:
     ) -> None:
         (tmp_path / "repo").mkdir()
 
-        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> cli.CliResult:
-            return cli.CliResult(args=args_list, returncode=0, stdout="Storage set to /tmp/storage\n", stderr="")
+        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> _cli.CliResult:
+            return _cli.CliResult(args=args_list, returncode=0, stdout="Storage set to /tmp/storage\n", stderr="")
 
-        monkeypatch.setattr(duplicacy, "run_cli", fake_run_cli)
+        monkeypatch.setattr(_cli, "run_cli", fake_run_cli)
 
         argv = ["list", "--config", str(tmp_path)]
         assert duplicacy.main(argv) == 0
@@ -377,10 +383,10 @@ class TestMain:
         fake_executable: str,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> cli.CliResult:
-            raise cli.CliError(args_list, 1, "Storage is not reachable")
+        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> _cli.CliResult:
+            raise _cli.CliError(args_list, 1, "Storage is not reachable")
 
-        monkeypatch.setattr(duplicacy, "run_cli", fake_run_cli)
+        monkeypatch.setattr(_cli, "run_cli", fake_run_cli)
 
         argv = ["config", "init", "--config", str(tmp_path), "--storage", "/tmp/storage"]
         assert duplicacy.main(argv) == 1

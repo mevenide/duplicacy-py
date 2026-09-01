@@ -1,8 +1,11 @@
-"""Shared helpers for driving CLIs (in particular, the Duplicacy CLI)."""
+"""Internal helpers for driving CLIs (in particular, the Duplicacy CLI), used by
+the per-command modules in ``duplicacy_scripts.commands``."""
 
 from __future__ import annotations
 
+import argparse
 import os
+import re
 import shutil
 import subprocess
 from collections.abc import Sequence
@@ -158,3 +161,63 @@ def run_cli(
     if check and completed.returncode != 0:
         raise CliError(args, completed.returncode, result.output)
     return result
+
+
+SNAPSHOT_LINE = re.compile(r"^Snapshot (?P<id>[^ ]+) revision \d+ ", re.MULTILINE)
+
+
+def add_config_argument(parser: argparse.ArgumentParser) -> None:
+    """Add the common ``--config`` argument to a command's subparser."""
+    parser.add_argument(
+        "--config",
+        default=None,
+        help="configuration directory (default: platform user config directory)",
+    )
+
+
+def snapshot_ids(output: str) -> list[str]:
+    """Extract the unique, sorted snapshot ids from ``duplicacy list -all`` output."""
+    return sorted({match.group("id") for match in SNAPSHOT_LINE.finditer(output)})
+
+
+def prepare_repo(config_dir: str | os.PathLike[str] | None) -> tuple[str, Path]:
+    """Return the resolved executable and repository directory.
+
+    Raises ``CliError`` when the repository directory has not been created by
+    ``config init`` yet.
+    """
+    executable = resolve_executable(config_dir=config_dir)
+    repo = repo_dir(config_dir)
+    if not repo.is_dir():
+        raise CliError(
+            ["duplicacy"],
+            None,
+            f"Repository directory does not exist at {repo}; run 'config init' first",
+        )
+    return executable, repo
+
+
+def run_and_print(args: Sequence[str], repo: str | os.PathLike[str]) -> int:
+    """Run a CLI command in ``repo`` and print its stdout, returning 0."""
+    result = run_cli([str(a) for a in args], cwd=repo)
+    print(result.stdout, end="")
+    return 0
+
+
+__all__ = [
+    "CliError",
+    "CliResult",
+    "SNAPSHOT_LINE",
+    "add_config_argument",
+    "config_file",
+    "default_config_dir",
+    "init_config",
+    "load_env",
+    "prepare_repo",
+    "repo_dir",
+    "resolve_executable",
+    "run_and_print",
+    "run_cli",
+    "save_config",
+    "snapshot_ids",
+]

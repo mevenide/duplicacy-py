@@ -1,4 +1,4 @@
-"""Tests for the shared CLI helpers in `src/duplicacy_scripts/cli.py`."""
+"""Tests for the internal CLI helpers in `src/duplicacy_scripts/_cli.py`."""
 
 from __future__ import annotations
 
@@ -8,12 +8,12 @@ from pathlib import Path
 
 import pytest
 
-from duplicacy_scripts.cli import CliError, default_config_dir, init_config, load_env, resolve_executable, run_cli, save_config
+from duplicacy_scripts._cli import CliError, default_config_dir, init_config, load_env, resolve_executable, run_cli, save_config
 
 
 class TestConfig:
     def test_default_config_dir_uses_platformdirs(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-        monkeypatch.setattr("duplicacy_scripts.cli.user_config_dir", lambda app_name: str(tmp_path / app_name))
+        monkeypatch.setattr("duplicacy_scripts._cli.user_config_dir", lambda app_name: str(tmp_path / app_name))
         assert default_config_dir() == tmp_path / "duplicacy-py"
 
     def test_saves_and_resolves_config(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

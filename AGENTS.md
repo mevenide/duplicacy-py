@@ -26,7 +26,7 @@ uv run duplicacy-py <command>  # run a command
 ```
 
 `uv` commands must be run from the repo root — there is no `pyproject.toml`
-above it. Tests cover `src/duplicacy_scripts/cli.py` and the common CLI.
+above it. Tests cover `src/duplicacy_scripts/_cli.py` and the common CLI.
 
 ## Conventions (follow existing code)
 
@@ -34,9 +34,15 @@ above it. Tests cover `src/duplicacy_scripts/cli.py` and the common CLI.
   `from __future__ import annotations`, then imports.
 - The common CLI entry point is `src/duplicacy_scripts/main.py`, exposed as
   `duplicacy-py` through the `[project.scripts]` table in `pyproject.toml`; it
-  uses `argparse` subcommands with `main(argv: list[str] | None = None) -> int`
-  and `if __name__ == "__main__": sys.exit(main())`.
-- Subprocesses are only invoked through `duplicacy_scripts.cli.run_cli` with a
+  only assembles the parser, dispatches, and handles `CliError` (printing to
+  stderr and returning exit code 1). Each subcommand lives in its own internal
+  module under `src/duplicacy_scripts/commands/` (`backup.py`, `list.py`,
+  `prune.py`, `config.py`) and must expose `add_parser(subparsers)` and
+  `run(args) -> int`; new commands are registered in that package's `COMMANDS`
+  table in `src/duplicacy_scripts/commands/__init__.py`. Command modules call
+  shared helpers through the internal `duplicacy_scripts._cli` module (e.g.
+  `_cli.run_cli(...)`), never via `from ... import run_cli`.
+- Subprocesses are only invoked through `duplicacy_scripts._cli.run_cli` with a
   list of args (never a shell), so paths with spaces work on Windows and POSIX.
 - A non-zero CLI exit raises `CliError`; scripts catch it, print to stderr,
   and return exit code 1.
@@ -44,15 +50,17 @@ above it. Tests cover `src/duplicacy_scripts/cli.py` and the common CLI.
   env var, else the value from the working-directory `.env` file), then the
   `duplicacy` key in `config.yaml`, then `'duplicacy'` on PATH (fails with
   `CliError` if none found).
-- `duplicacy_scripts.cli.load_env()` loads a `.env` file (cwd by default,
+- `duplicacy_scripts._cli.load_env()` loads a `.env` file (cwd by default,
   `override=False`); `resolve_executable` calls it before reading the env var,
   so `DUPLICACY_EXECUTABLE=/path/to/duplicacy` in a `.env` file works. `.env` is
   gitignored and must never hold committed secrets.
 - `uv add <pkg>` updates both `pyproject.toml` and `uv.lock` in one step.
 - Tests use plain `pytest` classes (`TestX`), `monkeypatch`/`capsys` fixtures.
   To stub the common CLI's CLI call, monkeypatch `run_cli` (and
-  `resolve_executable` if the test would otherwise fail on a missing binary) on
-  the module under test, since it binds them at import time.
+  `resolve_executable` if the test would otherwise fail on a missing binary)
+  **on the `duplicacy_scripts._cli` module**, since the command modules call
+  them as `_cli.run_cli`/`_cli.resolve_executable`; stub the interactive prune
+  picker (`select_option`) on `duplicacy_scripts.commands.prune`.
 
 ## Duplicacy CLI notes (verified against upstream source)
 
