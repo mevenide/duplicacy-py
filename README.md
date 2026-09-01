@@ -11,16 +11,18 @@ Python scripts for driving the [Duplicacy](https://github.com/gilbertchen/duplic
 Run the installed CLI with a command:
 
 ```sh
-uv run duplicacy-py backup --repository /path/to/repo
-uv run duplicacy-py prune --repository /path/to/repo --id <snapshot id>
+uv run duplicacy-py backup
+uv run duplicacy-py prune --id <snapshot id>
 uv run duplicacy-py config init --storage <storage url>
 uv run duplicacy-py config var duplicacy=/path/to/duplicacy
 ```
 
 The available commands are:
 
-- `backup` runs `duplicacy backup` in the repository.
-- `prune` lists revisions for the supplied snapshot id.
+- `backup` runs `duplicacy backup` in the `repo` subdirectory of the
+  configuration directory.
+- `prune` lists revisions for the supplied snapshot id, running in the `repo`
+  subdirectory of the configuration directory.
 - `config init --storage <storage url>` creates the configuration file and
   initializes a duplicacy repository in the `repo` subdirectory of the
   configuration directory (snapshot id: `duplicacy-py-dummy`). An existing
@@ -47,17 +49,20 @@ uv sync                  # create/refresh the venv
 uv run pytest            # run tests
 ```
 
-## Notes for Windows
+## Duplicacy executable
 
-Scripts are written to work on Windows as well as POSIX. Prefer passing the
-duplicacy executable explicitly (`--duplicacy Duplicacy.exe` or the
-`DUPLICACY_EXECUTABLE` environment variable) rather than relying on `PATH`.
+Scripts are written to work on Windows as well as POSIX. The duplicacy
+executable is resolved in this order:
 
-The executable location can also be configured in `config.yaml`, e.g.:
+1. The `DUPLICACY_EXECUTABLE` environment variable, or the same variable loaded
+   from a `.env` file in the working directory (real environment variables win
+   over `.env` values).
+2. The `duplicacy` key in `config.yaml`, e.g.:
 
-```
-duplicacy: C:\\Tools\\Duplicacy.exe
-```
+   ```
+   duplicacy: C:\\Tools\\Duplicacy.exe
+   ```
 
-Real environment variables take precedence over `.env` values. `.env` is
-gitignored, so keep credentials there rather than committing them.
+3. `duplicacy` on `PATH`.
+
+`.env` is gitignored, so keep credentials there rather than committing them.

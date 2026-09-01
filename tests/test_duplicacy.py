@@ -15,7 +15,7 @@ FAKE_DUPLICACY = "/fake/duplicacy"
 
 @pytest.fixture()
 def fake_executable(monkeypatch: pytest.MonkeyPatch) -> str:
-    monkeypatch.setattr(duplicacy, "resolve_executable", lambda explicit, config_dir=None: FAKE_DUPLICACY)
+    monkeypatch.setattr(duplicacy, "resolve_executable", lambda config_dir=None: FAKE_DUPLICACY)
     return FAKE_DUPLICACY
 
 
@@ -25,12 +25,12 @@ class TestParseArgs:
             duplicacy.parse_args([])
 
     def test_parses_backup(self) -> None:
-        args = duplicacy.parse_args(["backup", "--repository", "/tmp/repo"])
+        args = duplicacy.parse_args(["backup", "--config", "/tmp/settings"])
         assert args.command == "backup"
-        assert args.repository == "/tmp/repo"
+        assert args.config == "/tmp/settings"
 
     def test_parses_prune(self) -> None:
-        args = duplicacy.parse_args(["prune", "--repository", "/tmp/repo", "--id", "vm"])
+        args = duplicacy.parse_args(["prune", "--id", "vm"])
         assert args.command == "prune"
         assert args.id == "vm"
 
@@ -40,6 +40,10 @@ class TestParseArgs:
         assert args.config_command == "var"
         assert args.config == "/tmp/settings"
         assert args.assignment == "duplicacy=/opt/duplicacy"
+
+    def test_does_not_parse_duplicacy_argument(self) -> None:
+        with pytest.raises(SystemExit):
+            duplicacy.parse_args(["backup", "--duplicacy", "/opt/duplicacy"])
 
     def test_parses_config_init(self) -> None:
         args = duplicacy.parse_args(
@@ -131,6 +135,72 @@ class TestMain:
         assert duplicacy.main(argv) == 0
         assert "Repository already initialized" in capsys.readouterr().out
 
+    @pytest.mark.parametrize(
+        ("argv", "expected_args", "output", "cwd_name"),
+        [
+            (["backup", "--config", "/tmp/settings"], ["backup"], "Backup complete\n", "/tmp/settings/repo"),
+            (["prune", "--config", "/tmp/settings", "--id", "vm"], ["list", "-id", "vm"], "revision 5\n", "/tmp/settings/repo"),
+        ],
+    )
+    def test_dispatches_command_in_config_repo(
+        self,
+        argv: list[str],
+        expected_args: list[str],
+        output: str,
+        cwd_name: str,
+        fake_executable: str,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        (Path(argv[argv.index("--config") + 1]) / "repo").mkdir(parents=True, exist_ok=True)
+        captured: dict[str, object] = {}
+
+        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> cli.CliResult:
+            captured["args"] = args_list
+            captured["cwd"] = cwd
+            return cli.CliResult(args=args_list, returncode=0, stdout=output, stderr="")
+
+        monkeypatch.setattr(duplicacy, "run_cli", fake_run_cli)
+
+        assert duplicacy.main(argv) == 0
+        assert captured["args"] == [fake_executable, *expected_args]
+        assert captured["cwd"] == Path(cwd_name)
+        assert capsys.readouterr().out == output
+
+    def test_returns_one_on_cli_error(
+        self,
+        fake_executable: str,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> cli.CliResult:
+            raise cli.CliError(args_list, 1, "Repository has not been initialized")
+
+        monkeypatch.setattr(duplicacy, "run_cli", fake_run_cli)
+
+        assert duplicacy.main(["backup"]) == 1
+        assert "Repository has not been initialized" in capsys.readouterr().err
+
+    def test_returns_one_when_repo_directory_missing(
+        self,
+        capsys: pytest.CaptureFixture[str],
+        fake_executable: str,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        def fail_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> cli.CliResult:
+            raise AssertionError("the duplicacy CLI should not run without a repository directory")
+
+        monkeypatch.setattr(duplicacy, "run_cli", fail_run_cli)
+
+        config_dir = tmp_path / "settings"
+        config_dir.mkdir()
+        argv = ["backup", "--config", str(config_dir)]
+        assert duplicacy.main(argv) == 1
+        error = capsys.readouterr().err
+        assert "Repository directory does not exist" in error
+        assert "config init" in error
+
     def test_config_init_returns_one_on_cli_error(
         self,
         tmp_path: Path,
@@ -155,47 +225,3 @@ class TestMain:
     def test_rejects_invalid_config_variable(self, tmp_path, capsys) -> None:
         assert duplicacy.main(["config", "var", "--config", str(tmp_path), "duplicacy"]) == 1
         assert "NAME=VALUE" in capsys.readouterr().err
-
-    @pytest.mark.parametrize(
-        ("argv", "expected_args", "output"),
-        [
-            (["backup", "--repository", "/tmp/repo"], ["backup"], "Backup complete\n"),
-            (["prune", "--repository", "/tmp/repo", "--id", "vm"], ["list", "-id", "vm"], "revision 5\n"),
-        ],
-    )
-    def test_dispatches_command(
-        self,
-        argv: list[str],
-        expected_args: list[str],
-        output: str,
-        fake_executable: str,
-        monkeypatch: pytest.MonkeyPatch,
-        capsys: pytest.CaptureFixture[str],
-    ) -> None:
-        captured: dict[str, object] = {}
-
-        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> cli.CliResult:
-            captured["args"] = args_list
-            captured["cwd"] = cwd
-            return cli.CliResult(args=args_list, returncode=0, stdout=output, stderr="")
-
-        monkeypatch.setattr(duplicacy, "run_cli", fake_run_cli)
-
-        assert duplicacy.main(argv) == 0
-        assert captured["args"] == [fake_executable, *expected_args]
-        assert captured["cwd"] == "/tmp/repo"
-        assert capsys.readouterr().out == output
-
-    def test_returns_one_on_cli_error(
-        self,
-        fake_executable: str,
-        monkeypatch: pytest.MonkeyPatch,
-        capsys: pytest.CaptureFixture[str],
-    ) -> None:
-        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> cli.CliResult:
-            raise cli.CliError(args_list, 1, "Repository has not been initialized")
-
-        monkeypatch.setattr(duplicacy, "run_cli", fake_run_cli)
-
-        assert duplicacy.main(["backup", "--repository", "/tmp/repo"]) == 1
-        assert "Repository has not been initialized" in capsys.readouterr().err

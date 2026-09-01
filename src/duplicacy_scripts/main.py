@@ -1,9 +1,10 @@
 """Common command-line entry point for Duplicacy helpers.
 
-Run a backup or list the revisions for a snapshot from a repository directory:
+Run a backup or list the revisions for a snapshot in the repository kept in
+the configuration directory:
 
-    uv run duplicacy-py backup --repository /path/to/repo
-    uv run duplicacy-py prune --repository /path/to/repo --id <snapshot id>
+    uv run duplicacy-py backup
+    uv run duplicacy-py prune --id <snapshot id>
     uv run duplicacy-py config init --storage <storage url>
     uv run duplicacy-py config var duplicacy=/path/to/duplicacy
 """
@@ -15,30 +16,17 @@ import sys
 
 import yaml
 
-from duplicacy_scripts.cli import CliError, config_file, init_config, resolve_executable, run_cli, save_config
+from duplicacy_scripts.cli import CliError, config_file, init_config, repo_dir, resolve_executable, run_cli, save_config
 
 SNAPSHOT_ID = "duplicacy-py-dummy"
 
 
-def _add_common_arguments(
-    parser: argparse.ArgumentParser,
-    *,
-    repository: bool = True,
-    executable: bool = True,
-) -> None:
-    if repository:
-        parser.add_argument("--repository", required=True, help="duplicacy repository directory")
+def _add_common_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--config",
         default=None,
         help="configuration directory (default: platform user config directory)",
     )
-    if executable:
-        parser.add_argument(
-            "--duplicacy",
-            default=None,
-            help="path to the duplicacy executable (default: saved config, $DUPLICACY_EXECUTABLE, or 'duplicacy' on PATH)",
-        )
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -59,7 +47,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "init",
         help="create the configuration file and initialize a duplicacy repository",
     )
-    _add_common_arguments(config_init, repository=False)
+    _add_common_arguments(config_init)
     config_init.add_argument(
         "--storage",
         required=True,
@@ -67,7 +55,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
 
     config_var = config_commands.add_parser("var", help="save a configuration variable")
-    _add_common_arguments(config_var, repository=False, executable=False)
+    _add_common_arguments(config_var)
     config_var.add_argument(
         "assignment",
         help="configuration variable assignment (for example, duplicacy=/path/to/duplicacy)",
@@ -90,14 +78,14 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Configuration already exists at {path}")
             else:
                 print(f"Configuration initialized at {path}")
-            repo_dir = path.parent / "repo"
-            if (repo_dir / ".duplicacy" / "preferences").exists():
-                print(f"Repository already initialized at {repo_dir}")
+            repo = repo_dir(args.config)
+            if (repo / ".duplicacy" / "preferences").exists():
+                print(f"Repository already initialized at {repo}")
                 return 0
             try:
-                repo_dir.mkdir(parents=True, exist_ok=True)
-                executable = resolve_executable(args.duplicacy, config_dir=args.config)
-                result = run_cli([executable, "init", SNAPSHOT_ID, args.storage], cwd=repo_dir)
+                repo.mkdir(parents=True, exist_ok=True)
+                executable = resolve_executable(config_dir=args.config)
+                result = run_cli([executable, "init", SNAPSHOT_ID, args.storage], cwd=repo)
             except OSError as exc:
                 print(f"Could not initialize the repository: {exc}", file=sys.stderr)
                 return 1
@@ -127,8 +115,12 @@ def main(argv: list[str] | None = None) -> int:
         command_args.extend(["-id", args.id])
 
     try:
-        executable = resolve_executable(args.duplicacy, config_dir=args.config)
-        result = run_cli([executable, *command_args], cwd=args.repository)
+        executable = resolve_executable(config_dir=args.config)
+        repo = repo_dir(args.config)
+        if not repo.is_dir():
+            print(f"Repository directory does not exist at {repo}; run 'config init' first", file=sys.stderr)
+            return 1
+        result = run_cli([executable, *command_args], cwd=repo)
     except CliError as exc:
         print(exc, file=sys.stderr)
         return 1

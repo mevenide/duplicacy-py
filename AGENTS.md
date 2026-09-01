@@ -14,9 +14,8 @@ are in `src/duplicacy_scripts/`, with tests in `tests/`.
 - The configured Duplicacy executable is at `${HOME}/.local/bin/duplicacy_linux_x64_3.2.5`.
 - **The `duplicacy` executable is NOT installed on this machine.** To exercise a
   script end-to-end, create a stub shell script that echoes plausible output and
-  point the script at it via `--duplicacy /path/to/stub`, `DUPLICACY_EXECUTABLE`,
-  or a `.env` file (the stub receives the CLI args as `$*`; its stdout is what
-  the script prints).
+  point the script at it via `DUPLICACY_EXECUTABLE` or a `.env` file (the stub
+  receives the CLI args as `$*`; its stdout is what the script prints).
 
 ## Commands
 
@@ -41,15 +40,14 @@ above it. Tests cover `src/duplicacy_scripts/cli.py` and the common CLI.
   list of args (never a shell), so paths with spaces work on Windows and POSIX.
 - A non-zero CLI exit raises `CliError`; scripts catch it, print to stderr,
   and return exit code 1.
-- Executable resolution precedence: explicit `--duplicacy` arg, then the
-  `DUPLICACY_EXECUTABLE` env var, then `'duplicacy'` on PATH (fails with
+- Executable resolution precedence: `load_env()` (a real `DUPLICACY_EXECUTABLE`
+  env var, else the value from the working-directory `.env` file), then the
+  `duplicacy` key in `config.yaml`, then `'duplicacy'` on PATH (fails with
   `CliError` if none found).
 - `duplicacy_scripts.cli.load_env()` loads a `.env` file (cwd by default,
-  `override=False`) before the env var is read; `resolve_executable` calls it, so
-  `DUPLICACY_EXECUTABLE=/path/to/duplicacy` in a `.env` file works. `.env` is
+  `override=False`); `resolve_executable` calls it before reading the env var,
+  so `DUPLICACY_EXECUTABLE=/path/to/duplicacy` in a `.env` file works. `.env` is
   gitignored and must never hold committed secrets.
-- Scripts must work on Windows as well as POSIX; prefer passing the duplicacy
-  executable explicitly over relying on PATH.
 - `uv add <pkg>` updates both `pyproject.toml` and `uv.lock` in one step.
 - Tests use plain `pytest` classes (`TestX`), `monkeypatch`/`capsys` fixtures.
   To stub the common CLI's CLI call, monkeypatch `run_cli` (and
@@ -79,7 +77,8 @@ prune script:
   a prune that crashes mid-way leaves `fossils`/`caches` to clean up.
 - Repository discovery: the CLI walks up from the cwd until it finds a
   `.duplicacy` directory, then loads preferences from it; commands pass
-  `cwd=repository` to `run_cli`.
+  `cwd=repo_dir(config_dir)` (the `repo` subdirectory of the configuration
+  directory) to `run_cli`.
 - Source files worth consulting (fetch raw from GitHub `master` branch):
   - `duplicacy/duplicacy_main.go` — all commands and their flags
     (`listSnapshots`, `pruneSnapshots`, `getRevisions` accept `N` and `N-M`

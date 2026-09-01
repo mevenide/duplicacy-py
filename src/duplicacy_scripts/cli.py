@@ -60,6 +60,11 @@ def config_file(config_dir: str | os.PathLike[str] | None = None) -> Path:
     return (Path(config_dir) if config_dir else default_config_dir()) / "config.yaml"
 
 
+def repo_dir(config_dir: str | os.PathLike[str] | None = None) -> Path:
+    """Return the duplicacy repository directory inside ``config_dir``."""
+    return (Path(config_dir) if config_dir else default_config_dir()) / "repo"
+
+
 def save_config(
     variable: str,
     value: str,
@@ -89,23 +94,24 @@ def init_config(config_dir: str | os.PathLike[str] | None = None) -> Path:
 
 
 def resolve_executable(
-    explicit: str | None,
+    explicit: str | None = None,
     env_var: str = "DUPLICACY_EXECUTABLE",
     default: str = "duplicacy",
     config_dir: str | os.PathLike[str] | None = None,
 ) -> str:
     """Return the executable to use.
 
-    Precedence: explicit argument, then ``env_var`` from the process
-    environment, the selected config file, or the working-directory ``.env``;
-    finally the default name is looked up on PATH. Raises ``CliError`` if
-    nothing usable is found.
+    Precedence: explicit argument (mainly for tests), then ``env_var`` from the
+    process environment or the working-directory ``.env`` file, then the
+    ``duplicacy`` key in the selected config file, finally the default name
+    looked up on PATH. Raises ``CliError`` if nothing usable is found.
     """
     if explicit:
         return explicit
-    from_process = os.environ.get(env_var)
-    if from_process:
-        return from_process
+    load_env()
+    from_env = os.environ.get(env_var)
+    if from_env:
+        return from_env
     path = config_file(config_dir)
     if path.exists():
         with path.open() as config_stream:
@@ -115,16 +121,12 @@ def resolve_executable(
         from_config = configuration.get("duplicacy")
         if from_config:
             return str(from_config)
-    load_env()
-    from_env = os.environ.get(env_var)
-    if from_env:
-        return from_env
     if shutil.which(default):
         return default
     raise CliError(
         [default],
         None,
-        f"{default!r} not found on PATH; pass it explicitly, set {env_var}, or configure it in config.yaml or .env",
+        f"{default!r} not found on PATH; set {env_var} in the environment or .env, or configure it in config.yaml",
     )
 
 
