@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from duplicacy_scripts import cli
@@ -40,10 +42,17 @@ class TestParseArgs:
         assert args.assignment == "duplicacy=/opt/duplicacy"
 
     def test_parses_config_init(self) -> None:
-        args = duplicacy.parse_args(["config", "init", "--config", "/tmp/settings"])
+        args = duplicacy.parse_args(
+            ["config", "init", "--config", "/tmp/settings", "--storage", "/tmp/storage"]
+        )
         assert args.command == "config"
         assert args.config_command == "init"
         assert args.config == "/tmp/settings"
+        assert args.storage == "/tmp/storage"
+
+    def test_config_init_requires_storage(self) -> None:
+        with pytest.raises(SystemExit):
+            duplicacy.parse_args(["config", "init"])
 
     def test_config_requires_subcommand(self) -> None:
         with pytest.raises(SystemExit):
@@ -51,10 +60,92 @@ class TestParseArgs:
 
 
 class TestMain:
-    def test_initializes_config(self, tmp_path, capsys) -> None:
-        assert duplicacy.main(["config", "init", "--config", str(tmp_path)]) == 0
+    def test_initializes_config_and_repository(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        fake_executable: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> cli.CliResult:
+            captured["args"] = args_list
+            captured["cwd"] = cwd
+            preferences = tmp_path / "repo" / ".duplicacy" / "preferences"
+            preferences.parent.mkdir(parents=True)
+            preferences.write_text("")
+            return cli.CliResult(args=args_list, returncode=0, stdout="Repository initialized\n", stderr="")
+
+        monkeypatch.setattr(duplicacy, "run_cli", fake_run_cli)
+
+        argv = ["config", "init", "--config", str(tmp_path), "--storage", "/tmp/storage"]
+        assert duplicacy.main(argv) == 0
         assert (tmp_path / "config.yaml").exists()
-        assert "Configuration initialized" in capsys.readouterr().out
+        assert (tmp_path / "repo").is_dir()
+        assert captured["args"] == [fake_executable, "init", "duplicacy-py-dummy", "/tmp/storage"]
+        assert captured["cwd"] == Path(str(tmp_path / "repo"))
+        output = capsys.readouterr().out
+        assert "Configuration initialized" in output
+        assert "Repository initialized" in output
+
+    def test_config_init_reports_existing_config(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        fake_executable: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        (tmp_path / "config.yaml").write_text("duplicacy: /opt/duplicacy\n")
+
+        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> cli.CliResult:
+            preferences = tmp_path / "repo" / ".duplicacy" / "preferences"
+            preferences.parent.mkdir(parents=True)
+            preferences.write_text("")
+            return cli.CliResult(args=args_list, returncode=0, stdout="Repository initialized\n", stderr="")
+
+        monkeypatch.setattr(duplicacy, "run_cli", fake_run_cli)
+
+        argv = ["config", "init", "--config", str(tmp_path), "--storage", "/tmp/storage"]
+        assert duplicacy.main(argv) == 0
+        assert (tmp_path / "config.yaml").read_text() == "duplicacy: /opt/duplicacy\n"
+        assert "Configuration already exists" in capsys.readouterr().out
+
+    def test_config_init_skips_existing_repository(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        fake_executable: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        preferences = tmp_path / "repo" / ".duplicacy" / "preferences"
+        preferences.parent.mkdir(parents=True)
+        preferences.write_text("")
+
+        def fail_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> cli.CliResult:
+            raise AssertionError("duplicacy init should not run for an already initialized repository")
+
+        monkeypatch.setattr(duplicacy, "run_cli", fail_run_cli)
+
+        argv = ["config", "init", "--config", str(tmp_path), "--storage", "/tmp/storage"]
+        assert duplicacy.main(argv) == 0
+        assert "Repository already initialized" in capsys.readouterr().out
+
+    def test_config_init_returns_one_on_cli_error(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        fake_executable: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> cli.CliResult:
+            raise cli.CliError(args_list, 1, "Storage is not reachable")
+
+        monkeypatch.setattr(duplicacy, "run_cli", fake_run_cli)
+
+        argv = ["config", "init", "--config", str(tmp_path), "--storage", "/tmp/storage"]
+        assert duplicacy.main(argv) == 1
+        assert "Storage is not reachable" in capsys.readouterr().err
 
     def test_saves_config(self, tmp_path, capsys) -> None:
         assert duplicacy.main(["config", "var", "--config", str(tmp_path), "duplicacy=/opt/duplicacy"]) == 0

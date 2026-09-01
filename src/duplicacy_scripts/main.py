@@ -4,6 +4,7 @@ Run a backup or list the revisions for a snapshot from a repository directory:
 
     uv run duplicacy-py backup --repository /path/to/repo
     uv run duplicacy-py prune --repository /path/to/repo --id <snapshot id>
+    uv run duplicacy-py config init --storage <storage url>
     uv run duplicacy-py config var duplicacy=/path/to/duplicacy
 """
 
@@ -14,7 +15,9 @@ import sys
 
 import yaml
 
-from duplicacy_scripts.cli import CliError, init_config, resolve_executable, run_cli, save_config
+from duplicacy_scripts.cli import CliError, config_file, init_config, resolve_executable, run_cli, save_config
+
+SNAPSHOT_ID = "duplicacy-py-dummy"
 
 
 def _add_common_arguments(
@@ -52,8 +55,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     config = commands.add_parser("config", help="manage saved configuration variables")
     config_commands = config.add_subparsers(dest="config_command", required=True)
 
-    config_init = config_commands.add_parser("init", help="create the configuration file")
-    _add_common_arguments(config_init, repository=False, executable=False)
+    config_init = config_commands.add_parser(
+        "init",
+        help="create the configuration file and initialize a duplicacy repository",
+    )
+    _add_common_arguments(config_init, repository=False)
+    config_init.add_argument(
+        "--storage",
+        required=True,
+        help="storage URL to initialize the duplicacy repository with",
+    )
 
     config_var = config_commands.add_parser("var", help="save a configuration variable")
     _add_common_arguments(config_var, repository=False, executable=False)
@@ -69,12 +80,31 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     if args.command == "config":
         if args.config_command == "init":
+            existed = config_file(args.config).exists()
             try:
                 path = init_config(args.config)
             except OSError as exc:
                 print(f"Could not write configuration: {exc}", file=sys.stderr)
                 return 1
-            print(f"Configuration initialized at {path}")
+            if existed:
+                print(f"Configuration already exists at {path}")
+            else:
+                print(f"Configuration initialized at {path}")
+            repo_dir = path.parent / "repo"
+            if (repo_dir / ".duplicacy" / "preferences").exists():
+                print(f"Repository already initialized at {repo_dir}")
+                return 0
+            try:
+                repo_dir.mkdir(parents=True, exist_ok=True)
+                executable = resolve_executable(args.duplicacy, config_dir=args.config)
+                result = run_cli([executable, "init", SNAPSHOT_ID, args.storage], cwd=repo_dir)
+            except OSError as exc:
+                print(f"Could not initialize the repository: {exc}", file=sys.stderr)
+                return 1
+            except CliError as exc:
+                print(exc, file=sys.stderr)
+                return 1
+            print(result.stdout, end="")
             return 0
         try:
             variable, value = args.assignment.split("=", 1)

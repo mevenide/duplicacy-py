@@ -13,7 +13,7 @@ Run the installed CLI with a command:
 ```sh
 uv run duplicacy-py backup --repository /path/to/repo
 uv run duplicacy-py prune --repository /path/to/repo --id <snapshot id>
-uv run duplicacy-py config init
+uv run duplicacy-py config init --storage <storage url>
 uv run duplicacy-py config var duplicacy=/path/to/duplicacy
 ```
 
@@ -21,7 +21,11 @@ The available commands are:
 
 - `backup` runs `duplicacy backup` in the repository.
 - `prune` lists revisions for the supplied snapshot id.
-- `config init` creates the configuration file without touching an existing one.
+- `config init --storage <storage url>` creates the configuration file and
+  initializes a duplicacy repository in the `repo` subdirectory of the
+  configuration directory (snapshot id: `duplicacy-py-dummy`). An existing
+  configuration file is reported and left untouched, and an already
+  initialized `repo` directory is left untouched as well.
 - `config var NAME=VALUE` saves a named configuration variable for future commands.
 
 Configuration is stored as `config.yaml` in the per-user configuration directory.
