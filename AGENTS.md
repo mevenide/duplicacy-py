@@ -11,11 +11,17 @@ are in `src/duplicacy_scripts/`, with tests in `tests/`.
 - Python `>= 3.12`; runtime dependency is `python-dotenv`; dev dependency is
   `pytest>=8.3`.
 - Python 3.12.3 is installed system-wide; `uv` is at `~/.local/bin/uv`.
-- The configured Duplicacy executable is at `${HOME}/.local/bin/duplicacy_linux_x64_3.2.5`.
-- **The `duplicacy` executable is NOT installed on this machine.** To exercise a
-  script end-to-end, create a stub shell script that echoes plausible output and
-  point the script at it via `DUPLICACY_EXECUTABLE` or a `.env` file (the stub
-  receives the CLI args as `$*`; its stdout is what the script prints).
+- The real Duplicacy executable IS installed on this machine at
+  `${HOME}/.local/bin/duplicacy_linux_x64_3.2.5`. It is not on PATH as
+  `duplicacy`; it is resolved via the repo's gitignored `.env` file, which
+  contains `DUPLICACY_EXECUTABLE=${HOME}/.local/bin/duplicacy_linux_x64_3.2.5`.
+- Real test storage for end-to-end runs: `${HOME}/tmp/duplicacy-savegames.storage/`,
+  configured in `~/.config/duplicacy-py/repo/.duplicacy/preferences` (snapshot
+  id `duplicacy-py-dummy`). `uv run duplicacy-py prune --snapshot-id
+  Jenna3_user_savegames` from the repo root exercises the full path for real.
+- If a stub is still needed, create a shell script that echoes plausible output
+  and point the script at it via `DUPLICACY_EXECUTABLE` or a `.env` file (the
+  stub receives the CLI args as `$*`; its stdout is what the script prints).
 
 ## Commands
 
