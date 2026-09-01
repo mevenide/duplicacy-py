@@ -19,8 +19,9 @@ class TestResolveExecutable:
         monkeypatch.setenv("DUPLICACY_EXECUTABLE", "/opt/tools/duplicacy")
         assert resolve_executable(None) == "/opt/tools/duplicacy"
 
-    def test_default_falls_back_to_path(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("DUPLICACY_EXECUTABLE", raising=False)
+    def test_default_falls_back_to_path(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        monkeypatch.setenv("DUPLICACY_EXECUTABLE", "")
+        monkeypatch.chdir(tmp_path)
         # `python` is guaranteed to be on PATH inside the test venv.
         assert resolve_executable(None, default=sys.executable) == sys.executable
 

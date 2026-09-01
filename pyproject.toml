@@ -11,6 +11,9 @@ dependencies = [
     "python-dotenv>=1.2.3",
 ]
 
+[project.scripts]
+duplicacy-py = "duplicacy_scripts.main:main"
+
 [dependency-groups]
 dev = [
     "pytest>=8.3",

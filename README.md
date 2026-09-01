@@ -8,18 +8,22 @@ Python scripts for driving the [Duplicacy](https://github.com/gilbertchen/duplic
 
 ## Usage
 
-Run a script with:
+Run the installed CLI with a command:
 
 ```sh
-uv run scripts/<script>.py
+uv run duplicacy-py backup --repository /path/to/repo
+uv run duplicacy-py prune --repository /path/to/repo --id <snapshot id>
 ```
 
-## Adding scripts
+The available commands are:
 
-Add new scripts to `scripts/`. Common CLI-driving helpers live in
-`src/duplicacy_scripts/cli.py`; import them with
-`from duplicacy_scripts.cli import ...` (the `src/` layout is on the path when
-running via `uv run`).
+- `backup` runs `duplicacy backup` in the repository.
+- `prune` lists revisions for the supplied snapshot id.
+
+The console command is declared in `pyproject.toml` and points to the
+`duplicacy_scripts.main:main` entry point. The implementation lives in
+`src/duplicacy_scripts/main.py`, with shared CLI-driving helpers in
+`src/duplicacy_scripts/cli.py`.
 
 ## Development
 
