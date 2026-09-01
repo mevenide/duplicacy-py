@@ -10,6 +10,7 @@ import shutil
 import subprocess
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -41,6 +42,14 @@ class CliResult:
     def output(self) -> str:
         """Combined stdout + stderr, useful for logging."""
         return self.stdout + self.stderr
+
+
+@dataclass
+class Revision:
+    """A snapshot revision reported by ``duplicacy list``."""
+
+    revision: int
+    created_at: datetime
 
 
 def load_env(env_file: str | os.PathLike[str] | None = None) -> None:
@@ -164,6 +173,11 @@ def run_cli(
 
 
 SNAPSHOT_LINE = re.compile(r"^Snapshot (?P<id>[^ ]+) revision \d+ ", re.MULTILINE)
+REVISION_LINE = re.compile(
+    r"^Snapshot [^ ]+ revision (?P<revision>\d+) created at (?P<created>\d{4}-\d{2}-\d{2} \d{2}:\d{2})",
+    re.MULTILINE,
+)
+REVISION_TIME_FORMAT = "%Y-%m-%d %H:%M"
 
 
 def add_config_argument(parser: argparse.ArgumentParser) -> None:
@@ -178,6 +192,16 @@ def add_config_argument(parser: argparse.ArgumentParser) -> None:
 def snapshot_ids(output: str) -> list[str]:
     """Extract the unique, sorted snapshot ids from ``duplicacy list -all`` output."""
     return sorted({match.group("id") for match in SNAPSHOT_LINE.finditer(output)})
+
+
+def revisions(output: str) -> list[Revision]:
+    """Extract the unique, revision-sorted revisions from ``duplicacy list -id`` output."""
+    found: dict[int, Revision] = {}
+    for match in REVISION_LINE.finditer(output):
+        revision = int(match.group("revision"))
+        created_at = datetime.strptime(match.group("created"), REVISION_TIME_FORMAT)
+        found.setdefault(revision, Revision(revision, created_at))
+    return [found[number] for number in sorted(found)]
 
 
 def prepare_repo(config_dir: str | os.PathLike[str] | None) -> tuple[str, Path]:
@@ -207,6 +231,9 @@ def run_and_print(args: Sequence[str], repo: str | os.PathLike[str]) -> int:
 __all__ = [
     "CliError",
     "CliResult",
+    "REVISION_LINE",
+    "REVISION_TIME_FORMAT",
+    "Revision",
     "SNAPSHOT_LINE",
     "add_config_argument",
     "config_file",
@@ -216,6 +243,7 @@ __all__ = [
     "prepare_repo",
     "repo_dir",
     "resolve_executable",
+    "revisions",
     "run_and_print",
     "run_cli",
     "save_config",

@@ -55,4 +55,7 @@ def run(args: argparse.Namespace) -> int:
         snapshot_id = _select_snapshot_id(executable, repo)
         if snapshot_id is None:
             return 1
-    return _cli.run_and_print([executable, "list", "-id", snapshot_id], repo)
+    result = _cli.run_cli([executable, "list", "-id", snapshot_id], cwd=repo)
+    for revision in _cli.revisions(result.stdout):
+        print(f"{revision.revision} created at {revision.created_at:%Y-%m-%d %H:%M}")
+    return 0

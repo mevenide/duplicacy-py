@@ -7,6 +7,7 @@ prune picker is stubbed on `duplicacy_scripts.commands.prune`.
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -72,6 +73,35 @@ class TestParseArgs:
     def test_config_requires_subcommand(self) -> None:
         with pytest.raises(SystemExit):
             duplicacy.parse_args(["config"])
+
+
+class TestRevisions:
+    def test_parses_revisions_from_list_output(self) -> None:
+        output = (
+            "Storage set to /mnt/h/duplicacy-savegames.storage/\n"
+            "Snapshot Jenna3_user_savegames revision 1 created at 2026-08-26 19:07 -hash\n"
+            "Snapshot Jenna3_user_savegames revision 2 created at 2026-08-26 19:15\n"
+            "Snapshot Jenna3_user_savegames revision 10 created at 2026-08-26 21:30\n"
+            "Snapshot Jenna3_user_savegames revision 11 created at 2026-08-26 21:45\n"
+            "Snapshot Jenna3_user_savegames revision 12 created at 2026-08-26 22:00\n"
+        )
+        assert _cli.revisions(output) == [
+            _cli.Revision(1, datetime(2026, 8, 26, 19, 7)),
+            _cli.Revision(2, datetime(2026, 8, 26, 19, 15)),
+            _cli.Revision(10, datetime(2026, 8, 26, 21, 30)),
+            _cli.Revision(11, datetime(2026, 8, 26, 21, 45)),
+            _cli.Revision(12, datetime(2026, 8, 26, 22, 0)),
+        ]
+
+    def test_ignores_duplicate_revisions(self) -> None:
+        output = (
+            "Snapshot vm revision 5 created at 2026-01-01 10:00\n"
+            "Snapshot vm revision 5 created at 2026-01-01 10:00\n"
+        )
+        assert _cli.revisions(output) == [_cli.Revision(5, datetime(2026, 1, 1, 10, 0))]
+
+    def test_returns_empty_list_without_snapshot_lines(self) -> None:
+        assert _cli.revisions("Storage set to /tmp/storage\n") == []
 
 
 class TestMain:
@@ -147,10 +177,16 @@ class TestMain:
         assert "Repository already initialized" in capsys.readouterr().out
 
     @pytest.mark.parametrize(
-        ("argv", "expected_args", "output", "cwd_name"),
+        ("argv", "expected_args", "output", "printed", "cwd_name"),
         [
-            (["backup", "--config", "/tmp/settings"], ["backup"], "Backup complete\n", "/tmp/settings/repo"),
-            (["prune", "--config", "/tmp/settings", "--snapshot-id", "vm"], ["list", "-id", "vm"], "revision 5\n", "/tmp/settings/repo"),
+            (["backup", "--config", "/tmp/settings"], ["backup"], "Backup complete\n", "Backup complete\n", "/tmp/settings/repo"),
+            (
+                ["prune", "--config", "/tmp/settings", "--snapshot-id", "vm"],
+                ["list", "-id", "vm"],
+                "Snapshot vm revision 5 created at 2026-01-01 10:00\n",
+                "5 created at 2026-01-01 10:00\n",
+                "/tmp/settings/repo",
+            ),
         ],
     )
     def test_dispatches_command_in_config_repo(
@@ -158,6 +194,7 @@ class TestMain:
         argv: list[str],
         expected_args: list[str],
         output: str,
+        printed: str,
         cwd_name: str,
         fake_executable: str,
         monkeypatch: pytest.MonkeyPatch,
@@ -176,7 +213,7 @@ class TestMain:
         assert duplicacy.main(argv) == 0
         assert captured["args"] == [fake_executable, *expected_args]
         assert captured["cwd"] == Path(cwd_name)
-        assert capsys.readouterr().out == output
+        assert capsys.readouterr().out == printed
 
     def test_returns_one_on_cli_error(
         self,
@@ -236,7 +273,16 @@ class TestMain:
             captured["cwd"] = cwd
             if args_list[1:3] == ["list", "-all"]:
                 return _cli.CliResult(args=args_list, returncode=0, stdout=snapshot_list_output, stderr="")
-            return _cli.CliResult(args=args_list, returncode=0, stdout="Snapshot vm revision 5 created at 2026-01-01 10:00\n", stderr="")
+            return _cli.CliResult(
+                args=args_list,
+                returncode=0,
+                stdout=(
+                    "Storage set to /tmp/storage\n"
+                    "Snapshot vm revision 12 created at 2026-01-01 10:00\n"
+                    "Snapshot vm revision 5 created at 2026-01-01 09:45 -hash\n"
+                ),
+                stderr="",
+            )
 
         monkeypatch.setattr(_cli, "run_cli", fake_run_cli)
         monkeypatch.setattr(prune_command.sys.stdin, "isatty", lambda: True)
@@ -245,7 +291,7 @@ class TestMain:
         assert duplicacy.main(["prune", "--config", str(tmp_path)]) == 0
         assert captured["args"] == [fake_executable, "list", "-id", "vm"]
         assert captured["cwd"] == tmp_path / "repo"
-        assert "Snapshot vm revision 5" in capsys.readouterr().out
+        assert capsys.readouterr().out == "5 created at 2026-01-01 09:45\n12 created at 2026-01-01 10:00\n"
 
     def test_prune_picker_cancelled_returns_one(
         self,
