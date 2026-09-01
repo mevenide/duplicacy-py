@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from duplicacy_scripts.cli import CliError, default_config_dir, load_env, resolve_executable, run_cli, save_config
+from duplicacy_scripts.cli import CliError, default_config_dir, init_config, load_env, resolve_executable, run_cli, save_config
 
 
 class TestConfig:
@@ -18,8 +18,25 @@ class TestConfig:
 
     def test_saves_and_resolves_config(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("DUPLICACY_EXECUTABLE", raising=False)
-        save_config("/opt/tools/duplicacy", tmp_path)
+        save_config("duplicacy", "/opt/tools/duplicacy", tmp_path)
+        assert (tmp_path / "config.yaml").read_text() == "duplicacy: /opt/tools/duplicacy\n"
         assert resolve_executable(None, config_dir=tmp_path) == "/opt/tools/duplicacy"
+
+    def test_initializes_config(self, tmp_path: Path) -> None:
+        path = init_config(tmp_path)
+        assert path == tmp_path / "config.yaml"
+        assert path.exists()
+        assert path.read_text() == ""
+
+    def test_init_preserves_existing_config(self, tmp_path: Path) -> None:
+        save_config("duplicacy", "/opt/tools/duplicacy", tmp_path)
+        assert init_config(tmp_path) == tmp_path / "config.yaml"
+        assert (tmp_path / "config.yaml").read_text() == "duplicacy: /opt/tools/duplicacy\n"
+
+    def test_updates_existing_config(self, tmp_path: Path) -> None:
+        save_config("other", "value", tmp_path)
+        save_config("duplicacy", "/opt/tools/duplicacy", tmp_path)
+        assert (tmp_path / "config.yaml").read_text() == "duplicacy: /opt/tools/duplicacy\nother: value\n"
 
 
 class TestResolveExecutable:
@@ -29,6 +46,11 @@ class TestResolveExecutable:
     def test_env_var_used_when_no_argument(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("DUPLICACY_EXECUTABLE", "/opt/tools/duplicacy")
         assert resolve_executable(None) == "/opt/tools/duplicacy"
+
+    def test_env_var_wins_over_yaml_config(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        save_config("duplicacy", "/from/config", tmp_path)
+        monkeypatch.setenv("DUPLICACY_EXECUTABLE", "/from/env")
+        assert resolve_executable(None, config_dir=tmp_path) == "/from/env"
 
     def test_default_falls_back_to_path(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         monkeypatch.setenv("DUPLICACY_EXECUTABLE", "")

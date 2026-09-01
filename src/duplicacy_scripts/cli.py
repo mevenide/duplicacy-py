@@ -11,6 +11,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from platformdirs import user_config_dir
+import yaml
 
 
 class CliError(RuntimeError):
@@ -55,15 +56,35 @@ def default_config_dir() -> Path:
 
 
 def config_file(config_dir: str | os.PathLike[str] | None = None) -> Path:
-    """Return the dotenv configuration file for ``config_dir``."""
-    return (Path(config_dir) if config_dir else default_config_dir()) / "config.env"
+    """Return the YAML configuration file for ``config_dir``."""
+    return (Path(config_dir) if config_dir else default_config_dir()) / "config.yaml"
 
 
-def save_config(executable: str, config_dir: str | os.PathLike[str] | None = None) -> Path:
-    """Persist the configured Duplicacy executable and return its file path."""
+def save_config(
+    variable: str,
+    value: str,
+    config_dir: str | os.PathLike[str] | None = None,
+) -> Path:
+    """Persist a configuration variable and return the configuration path."""
     path = config_file(config_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(f"DUPLICACY_EXECUTABLE={executable}\n")
+    configuration: dict[str, str] = {}
+    if path.exists():
+        with path.open() as config_stream:
+            configuration = yaml.safe_load(config_stream) or {}
+        if not isinstance(configuration, dict):
+            raise TypeError("configuration must contain a YAML mapping")
+    configuration[variable] = value
+    with path.open("w") as config_stream:
+        yaml.safe_dump(configuration, config_stream, sort_keys=True)
+    return path
+
+
+def init_config(config_dir: str | os.PathLike[str] | None = None) -> Path:
+    """Create the configuration file if it does not exist and return its path."""
+    path = config_file(config_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.touch()
     return path
 
 
@@ -82,14 +103,29 @@ def resolve_executable(
     """
     if explicit:
         return explicit
-    load_env(config_file(config_dir))
+    from_process = os.environ.get(env_var)
+    if from_process:
+        return from_process
+    path = config_file(config_dir)
+    if path.exists():
+        with path.open() as config_stream:
+            configuration = yaml.safe_load(config_stream) or {}
+        if not isinstance(configuration, dict):
+            raise CliError([str(path)], None, "configuration must contain a YAML mapping")
+        from_config = configuration.get("duplicacy")
+        if from_config:
+            return str(from_config)
     load_env()
     from_env = os.environ.get(env_var)
     if from_env:
         return from_env
     if shutil.which(default):
         return default
-    raise CliError([default], None, f"{default!r} not found on PATH; pass it explicitly, set {env_var}, or add it to a .env file")
+    raise CliError(
+        [default],
+        None,
+        f"{default!r} not found on PATH; pass it explicitly, set {env_var}, or configure it in config.yaml or .env",
+    )
 
 
 def run_cli(

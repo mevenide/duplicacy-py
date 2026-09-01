@@ -32,18 +32,39 @@ class TestParseArgs:
         assert args.command == "prune"
         assert args.id == "vm"
 
-    def test_parses_config(self) -> None:
-        args = duplicacy.parse_args(["config", "--config", "/tmp/settings", "--duplicacy", "/opt/duplicacy"])
+    def test_parses_config_var(self) -> None:
+        args = duplicacy.parse_args(["config", "var", "--config", "/tmp/settings", "duplicacy=/opt/duplicacy"])
         assert args.command == "config"
+        assert args.config_command == "var"
         assert args.config == "/tmp/settings"
-        assert args.duplicacy == "/opt/duplicacy"
+        assert args.assignment == "duplicacy=/opt/duplicacy"
+
+    def test_parses_config_init(self) -> None:
+        args = duplicacy.parse_args(["config", "init", "--config", "/tmp/settings"])
+        assert args.command == "config"
+        assert args.config_command == "init"
+        assert args.config == "/tmp/settings"
+
+    def test_config_requires_subcommand(self) -> None:
+        with pytest.raises(SystemExit):
+            duplicacy.parse_args(["config"])
 
 
 class TestMain:
+    def test_initializes_config(self, tmp_path, capsys) -> None:
+        assert duplicacy.main(["config", "init", "--config", str(tmp_path)]) == 0
+        assert (tmp_path / "config.yaml").exists()
+        assert "Configuration initialized" in capsys.readouterr().out
+
     def test_saves_config(self, tmp_path, capsys) -> None:
-        assert duplicacy.main(["config", "--config", str(tmp_path), "--duplicacy", "/opt/duplicacy"]) == 0
-        assert (tmp_path / "config.env").read_text() == "DUPLICACY_EXECUTABLE=/opt/duplicacy\n"
+        assert duplicacy.main(["config", "var", "--config", str(tmp_path), "duplicacy=/opt/duplicacy"]) == 0
+        assert (tmp_path / "config.yaml").read_text() == "duplicacy: /opt/duplicacy\n"
         assert "Configuration saved" in capsys.readouterr().out
+
+    def test_rejects_invalid_config_variable(self, tmp_path, capsys) -> None:
+        assert duplicacy.main(["config", "var", "--config", str(tmp_path), "duplicacy"]) == 1
+        assert "NAME=VALUE" in capsys.readouterr().err
+
     @pytest.mark.parametrize(
         ("argv", "expected_args", "output"),
         [

@@ -13,16 +13,18 @@ Run the installed CLI with a command:
 ```sh
 uv run duplicacy-py backup --repository /path/to/repo
 uv run duplicacy-py prune --repository /path/to/repo --id <snapshot id>
-uv run duplicacy-py config --duplicacy /path/to/duplicacy
+uv run duplicacy-py config init
+uv run duplicacy-py config var duplicacy=/path/to/duplicacy
 ```
 
 The available commands are:
 
 - `backup` runs `duplicacy backup` in the repository.
 - `prune` lists revisions for the supplied snapshot id.
-- `config` saves the Duplicacy executable path for future commands.
+- `config init` creates the configuration file without touching an existing one.
+- `config var NAME=VALUE` saves a named configuration variable for future commands.
 
-Configuration is stored as `config.env` in the per-user configuration directory.
+Configuration is stored as `config.yaml` in the per-user configuration directory.
 Use `--config /path/to/config-dir` on any command to select a different directory.
 The default follows the platform conventions provided by the `platformdirs`
 package: `~/.config/duplicacy-py` on Linux, `%APPDATA%\\duplicacy-py` on
@@ -47,11 +49,10 @@ Scripts are written to work on Windows as well as POSIX. Prefer passing the
 duplicacy executable explicitly (`--duplicacy Duplicacy.exe` or the
 `DUPLICACY_EXECUTABLE` environment variable) rather than relying on `PATH`.
 
-The executable location can also be configured in a `.env` file in the working
-directory, e.g.:
+The executable location can also be configured in `config.yaml`, e.g.:
 
 ```
-DUPLICACY_EXECUTABLE=C:\Tools\Duplicacy.exe
+duplicacy: C:\\Tools\\Duplicacy.exe
 ```
 
 Real environment variables take precedence over `.env` values. `.env` is

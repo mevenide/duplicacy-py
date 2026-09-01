@@ -4,6 +4,7 @@ Run a backup or list the revisions for a snapshot from a repository directory:
 
     uv run duplicacy-py backup --repository /path/to/repo
     uv run duplicacy-py prune --repository /path/to/repo --id <snapshot id>
+    uv run duplicacy-py config var duplicacy=/path/to/duplicacy
 """
 
 from __future__ import annotations
@@ -11,7 +12,9 @@ from __future__ import annotations
 import argparse
 import sys
 
-from duplicacy_scripts.cli import CliError, resolve_executable, run_cli, save_config
+import yaml
+
+from duplicacy_scripts.cli import CliError, init_config, resolve_executable, run_cli, save_config
 
 
 def _add_common_arguments(
@@ -46,12 +49,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     _add_common_arguments(prune)
     prune.add_argument("--id", required=True, help="snapshot id to list revisions for")
 
-    config = commands.add_parser("config", help="configure the Duplicacy executable")
-    _add_common_arguments(config, repository=False, executable=False)
-    config.add_argument(
-        "--duplicacy",
-        required=True,
-        help="path to the duplicacy executable to save",
+    config = commands.add_parser("config", help="manage saved configuration variables")
+    config_commands = config.add_subparsers(dest="config_command", required=True)
+
+    config_init = config_commands.add_parser("init", help="create the configuration file")
+    _add_common_arguments(config_init, repository=False, executable=False)
+
+    config_var = config_commands.add_parser("var", help="save a configuration variable")
+    _add_common_arguments(config_var, repository=False, executable=False)
+    config_var.add_argument(
+        "assignment",
+        help="configuration variable assignment (for example, duplicacy=/path/to/duplicacy)",
     )
 
     return parser.parse_args(argv)
@@ -60,9 +68,25 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     if args.command == "config":
+        if args.config_command == "init":
+            try:
+                path = init_config(args.config)
+            except OSError as exc:
+                print(f"Could not write configuration: {exc}", file=sys.stderr)
+                return 1
+            print(f"Configuration initialized at {path}")
+            return 0
         try:
-            path = save_config(args.duplicacy, args.config)
-        except OSError as exc:
+            variable, value = args.assignment.split("=", 1)
+        except ValueError:
+            print("Configuration variable must use NAME=VALUE syntax", file=sys.stderr)
+            return 1
+        if not variable or not value:
+            print("Configuration variable must use NAME=VALUE syntax", file=sys.stderr)
+            return 1
+        try:
+            path = save_config(variable, value, args.config)
+        except (OSError, TypeError, yaml.YAMLError) as exc:
             print(f"Could not write configuration: {exc}", file=sys.stderr)
             return 1
         print(f"Configuration saved to {path}")
