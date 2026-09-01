@@ -8,12 +8,14 @@ Python scripts that drive the [Duplicacy](https://github.com/gilbertchen/duplica
 It is a **uv-based, `src/`-layout** project: thin scripts in `scripts/`, shared
 CLI-driving helpers in `src/duplicacy_scripts/`, tests in `tests/`.
 
-- Python `>= 3.12`, no runtime dependencies; dev dependency is `pytest>=8.3`.
+- Python `>= 3.12`; runtime dependency is `python-dotenv`; dev dependency is
+  `pytest>=8.3`.
 - Python 3.12.3 is installed system-wide; `uv` is at `~/.local/bin/uv`.
 - **The `duplicacy` executable is NOT installed on this machine.** To exercise a
   script end-to-end, create a stub shell script that echoes plausible output and
-  pass it via `--duplicacy /path/to/stub` (the stub receives the CLI args as `$*`
-  and its stdout is what the script prints).
+  point the script at it via `--duplicacy /path/to/stub`, `DUPLICACY_EXECUTABLE`,
+  or a `.env` file (the stub receives the CLI args as `$*`; its stdout is what
+  the script prints).
 
 ## Commands
 
@@ -24,7 +26,7 @@ uv run scripts/<script>.py   # run a script; src/ layout is on the path
 ```
 
 `uv` commands must be run from the repo root — there is no `pyproject.toml`
-above it. Tests currently: 10 for `src/duplicacy_scripts/cli.py`,
+above it. Tests currently: 12 for `src/duplicacy_scripts/cli.py`,
 4 for `scripts/prune.py`.
 
 ## Conventions (follow existing code)
@@ -37,10 +39,16 @@ above it. Tests currently: 10 for `src/duplicacy_scripts/cli.py`,
   list of args (never a shell), so paths with spaces work on Windows and POSIX.
 - A non-zero CLI exit raises `CliError`; scripts catch it, print to stderr,
   and return exit code 1.
-- Executable resolution precedence: explicit `--duplicacy` arg, then `$DUPLICACY`
-  env var, then `'duplicacy'` on PATH (fails with `CliError` if none found).
+- Executable resolution precedence: explicit `--duplicacy` arg, then the
+  `DUPLICACY_EXECUTABLE` env var, then `'duplicacy'` on PATH (fails with
+  `CliError` if none found).
+- `duplicacy_scripts.cli.load_env()` loads a `.env` file (cwd by default,
+  `override=False`) before the env var is read; `resolve_executable` calls it, so
+  `DUPLICACY_EXECUTABLE=/path/to/duplicacy` in a `.env` file works. `.env` is
+  gitignored and must never hold committed secrets.
 - Scripts must work on Windows as well as POSIX; prefer passing the duplicacy
   executable explicitly over relying on PATH.
+- `uv add <pkg>` updates both `pyproject.toml` and `uv.lock` in one step.
 - Tests use plain `pytest` classes (`TestX`), `monkeypatch`/`capsys` fixtures.
   To stub a script's CLI call, monkeypatch `run_cli` (and `resolve_executable`
   if the test would otherwise fail on a missing binary) on the **script module**

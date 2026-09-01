@@ -32,4 +32,14 @@ uv run pytest            # run tests
 
 Scripts are written to work on Windows as well as POSIX. Prefer passing the
 duplicacy executable explicitly (`--duplicacy Duplicacy.exe` or the
-`DUPLICACY` environment variable) rather than relying on `PATH`.
+`DUPLICACY_EXECUTABLE` environment variable) rather than relying on `PATH`.
+
+The executable location can also be configured in a `.env` file in the working
+directory, e.g.:
+
+```
+DUPLICACY_EXECUTABLE=C:\Tools\Duplicacy.exe
+```
+
+Real environment variables take precedence over `.env` values. `.env` is
+gitignored, so keep credentials there rather than committing them.

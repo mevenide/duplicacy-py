@@ -8,6 +8,8 @@ import subprocess
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from dotenv import load_dotenv
+
 
 class CliError(RuntimeError):
     """Raised when a CLI command fails (non-zero exit or cannot run)."""
@@ -35,25 +37,36 @@ class CliResult:
         return self.stdout + self.stderr
 
 
+def load_env(env_file: str | os.PathLike[str] | None = None) -> None:
+    """Load variables from a ``.env`` file into the environment.
+
+    Real environment variables always win over the file. By default the
+    ``.env`` file in the current directory is used if it exists; pass an
+    explicit path to load a different file.
+    """
+    load_dotenv(env_file, override=False)
+
+
 def resolve_executable(
     explicit: str | None,
-    env_var: str = "DUPLICACY",
+    env_var: str = "DUPLICACY_EXECUTABLE",
     default: str = "duplicacy",
 ) -> str:
     """Return the executable to use.
 
-    Precedence: explicit argument, then the environment variable, then the
-    default name looked up on PATH. Raises ``CliError`` if nothing usable is
-    found.
+    Precedence: explicit argument, then the environment variable (typically
+    set via a ``.env`` file, see :func:`load_env`), then the default name
+    looked up on PATH. Raises ``CliError`` if nothing usable is found.
     """
     if explicit:
         return explicit
+    load_env()
     from_env = os.environ.get(env_var)
     if from_env:
         return from_env
     if shutil.which(default):
         return default
-    raise CliError([default], None, f"{default!r} not found on PATH; pass it explicitly or set {env_var}")
+    raise CliError([default], None, f"{default!r} not found on PATH; pass it explicitly, set {env_var}, or add it to a .env file")
 
 
 def run_cli(

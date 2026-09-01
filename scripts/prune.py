@@ -22,7 +22,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--duplicacy",
         default=None,
-        help="path to the duplicacy executable (default: $DUPLICACY or 'duplicacy' on PATH)",
+        help="path to the duplicacy executable (default: $DUPLICACY_EXECUTABLE or 'duplicacy' on PATH)",
     )
     return parser.parse_args(argv)
 
