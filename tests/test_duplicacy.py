@@ -29,10 +29,15 @@ class TestParseArgs:
         assert args.command == "backup"
         assert args.config == "/tmp/settings"
 
+    def test_parses_list(self) -> None:
+        args = duplicacy.parse_args(["list"])
+        assert args.command == "list"
+        assert args.config is None
+
     def test_parses_prune(self) -> None:
-        args = duplicacy.parse_args(["prune", "--id", "vm"])
+        args = duplicacy.parse_args(["prune", "--snapshot-id", "vm"])
         assert args.command == "prune"
-        assert args.id == "vm"
+        assert args.snapshot_id == "vm"
 
     def test_parses_config_var(self) -> None:
         args = duplicacy.parse_args(["config", "var", "--config", "/tmp/settings", "duplicacy=/opt/duplicacy"])
@@ -139,7 +144,7 @@ class TestMain:
         ("argv", "expected_args", "output", "cwd_name"),
         [
             (["backup", "--config", "/tmp/settings"], ["backup"], "Backup complete\n", "/tmp/settings/repo"),
-            (["prune", "--config", "/tmp/settings", "--id", "vm"], ["list", "-id", "vm"], "revision 5\n", "/tmp/settings/repo"),
+            (["prune", "--config", "/tmp/settings", "--snapshot-id", "vm"], ["list", "-id", "vm"], "revision 5\n", "/tmp/settings/repo"),
         ],
     )
     def test_dispatches_command_in_config_repo(
@@ -200,6 +205,170 @@ class TestMain:
         error = capsys.readouterr().err
         assert "Repository directory does not exist" in error
         assert "config init" in error
+
+    @pytest.fixture()
+    def snapshot_list_output(self) -> str:
+        return (
+            "Storage set to /tmp/storage\n"
+            "Snapshot vm revision 5 created at 2026-01-01 10:00\n"
+            "Snapshot db revision 2 created at 2026-01-02 11:00\n"
+        )
+
+    def test_prune_with_picked_snapshot_id(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        fake_executable: str,
+        monkeypatch: pytest.MonkeyPatch,
+        snapshot_list_output: str,
+    ) -> None:
+        (tmp_path / "repo").mkdir()
+        captured: dict[str, object] = {}
+
+        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> cli.CliResult:
+            captured["args"] = args_list
+            captured["cwd"] = cwd
+            if args_list[1:3] == ["list", "-all"]:
+                return cli.CliResult(args=args_list, returncode=0, stdout=snapshot_list_output, stderr="")
+            return cli.CliResult(args=args_list, returncode=0, stdout="Snapshot vm revision 5 created at 2026-01-01 10:00\n", stderr="")
+
+        monkeypatch.setattr(duplicacy, "run_cli", fake_run_cli)
+        monkeypatch.setattr(duplicacy.sys.stdin, "isatty", lambda: True)
+        monkeypatch.setattr(duplicacy, "select_option", lambda message, choices: "vm")
+
+        assert duplicacy.main(["prune", "--config", str(tmp_path)]) == 0
+        assert captured["args"] == [fake_executable, "list", "-id", "vm"]
+        assert captured["cwd"] == tmp_path / "repo"
+        assert "Snapshot vm revision 5" in capsys.readouterr().out
+
+    def test_prune_picker_cancelled_returns_one(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        fake_executable: str,
+        monkeypatch: pytest.MonkeyPatch,
+        snapshot_list_output: str,
+    ) -> None:
+        (tmp_path / "repo").mkdir()
+
+        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> cli.CliResult:
+            if args_list[1:3] == ["list", "-all"]:
+                return cli.CliResult(args=args_list, returncode=0, stdout=snapshot_list_output, stderr="")
+            raise AssertionError("the duplicacy CLI should not run after a cancelled selection")
+
+        monkeypatch.setattr(duplicacy, "run_cli", fake_run_cli)
+        monkeypatch.setattr(duplicacy.sys.stdin, "isatty", lambda: True)
+        monkeypatch.setattr(duplicacy, "select_option", lambda message, choices: None)
+
+        assert duplicacy.main(["prune", "--config", str(tmp_path)]) == 1
+        assert capsys.readouterr().out == ""
+
+    def test_prune_picker_requires_interactive_stdin(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        fake_executable: str,
+        monkeypatch: pytest.MonkeyPatch,
+        snapshot_list_output: str,
+    ) -> None:
+        (tmp_path / "repo").mkdir()
+
+        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> cli.CliResult:
+            if args_list[1:3] == ["list", "-all"]:
+                return cli.CliResult(args=args_list, returncode=0, stdout=snapshot_list_output, stderr="")
+            raise AssertionError("the picker should not be offered when stdin is not interactive")
+
+        monkeypatch.setattr(duplicacy, "run_cli", fake_run_cli)
+        monkeypatch.setattr(duplicacy.sys.stdin, "isatty", lambda: False)
+
+        assert duplicacy.main(["prune", "--config", str(tmp_path)]) == 1
+        error = capsys.readouterr().err
+        assert "--snapshot-id is required when stdin is not interactive" in error
+        assert "db" in error and "vm" in error
+
+    def test_prune_picker_with_no_snapshots(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        fake_executable: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        (tmp_path / "repo").mkdir()
+
+        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> cli.CliResult:
+            return cli.CliResult(args=args_list, returncode=0, stdout="Storage set to /tmp/storage\n", stderr="")
+
+        monkeypatch.setattr(duplicacy, "run_cli", fake_run_cli)
+        monkeypatch.setattr(duplicacy.sys.stdin, "isatty", lambda: True)
+
+        assert duplicacy.main(["prune", "--config", str(tmp_path)]) == 1
+        assert "No snapshots found in the repository" in capsys.readouterr().err
+
+    def test_lists_snapshot_ids(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        fake_executable: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        (tmp_path / "repo").mkdir()
+        captured: dict[str, object] = {}
+        list_output = (
+            "Storage set to /tmp/storage\n"
+            "Snapshot vm revision 5 created at 2026-01-01 10:00\n"
+            "Snapshot db revision 2 created at 2026-01-02 11:00\n"
+            "Snapshot db revision 3 created at 2026-01-03 12:00\n"
+            "Snapshot vm revision 6 created at 2026-01-04 13:00\n"
+        )
+
+        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> cli.CliResult:
+            captured["args"] = args_list
+            captured["cwd"] = cwd
+            return cli.CliResult(args=args_list, returncode=0, stdout=list_output, stderr="")
+
+        monkeypatch.setattr(duplicacy, "run_cli", fake_run_cli)
+
+        argv = ["list", "--config", str(tmp_path)]
+        assert duplicacy.main(argv) == 0
+        assert captured["args"] == [fake_executable, "list", "-all"]
+        assert captured["cwd"] == tmp_path / "repo"
+        assert capsys.readouterr().out == "db\nvm\n"
+
+    def test_list_returns_one_on_cli_error(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        fake_executable: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        (tmp_path / "repo").mkdir()
+
+        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> cli.CliResult:
+            raise cli.CliError(args_list, 1, "Storage is not reachable")
+
+        monkeypatch.setattr(duplicacy, "run_cli", fake_run_cli)
+
+        argv = ["list", "--config", str(tmp_path)]
+        assert duplicacy.main(argv) == 1
+        assert "Storage is not reachable" in capsys.readouterr().err
+
+    def test_list_with_no_snapshots_prints_nothing(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        fake_executable: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        (tmp_path / "repo").mkdir()
+
+        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> cli.CliResult:
+            return cli.CliResult(args=args_list, returncode=0, stdout="Storage set to /tmp/storage\n", stderr="")
+
+        monkeypatch.setattr(duplicacy, "run_cli", fake_run_cli)
+
+        argv = ["list", "--config", str(tmp_path)]
+        assert duplicacy.main(argv) == 0
+        assert capsys.readouterr().out == ""
 
     def test_config_init_returns_one_on_cli_error(
         self,

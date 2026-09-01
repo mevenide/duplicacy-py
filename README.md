@@ -12,7 +12,8 @@ Run the installed CLI with a command:
 
 ```sh
 uv run duplicacy-py backup
-uv run duplicacy-py prune --id <snapshot id>
+uv run duplicacy-py list
+uv run duplicacy-py prune --snapshot-id <snapshot id>
 uv run duplicacy-py config init --storage <storage url>
 uv run duplicacy-py config var duplicacy=/path/to/duplicacy
 ```
@@ -21,8 +22,14 @@ The available commands are:
 
 - `backup` runs `duplicacy backup` in the `repo` subdirectory of the
   configuration directory.
-- `prune` lists revisions for the supplied snapshot id, running in the `repo`
-  subdirectory of the configuration directory.
+- `list` prints the snapshot ids found in the repository (one per line,
+  sorted, duplicates removed).
+- `prune [--snapshot-id <snapshot id>]` lists revisions for the supplied
+  snapshot id, running in the `repo` subdirectory of the configuration
+  directory. When `--snapshot-id` is omitted and stdin is interactive, an
+  up/down arrow picker (with Enter to select) offers the snapshot ids found in
+  the repository; when stdin is not interactive, it lists the available ids and
+  exits with an error.
 - `config init --storage <storage url>` creates the configuration file and
   initializes a duplicacy repository in the `repo` subdirectory of the
   configuration directory (snapshot id: `duplicacy-py-dummy`). An existing
