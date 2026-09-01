@@ -8,6 +8,7 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "platformdirs>=4.11.6",
     "python-dotenv>=1.2.3",
 ]
 

@@ -7,8 +7,10 @@ import shutil
 import subprocess
 from collections.abc import Sequence
 from dataclasses import dataclass
+from pathlib import Path
 
 from dotenv import load_dotenv
+from platformdirs import user_config_dir
 
 
 class CliError(RuntimeError):
@@ -47,19 +49,40 @@ def load_env(env_file: str | os.PathLike[str] | None = None) -> None:
     load_dotenv(env_file, override=False)
 
 
+def default_config_dir() -> Path:
+    """Return the conventional per-user configuration directory."""
+    return Path(user_config_dir("duplicacy-py"))
+
+
+def config_file(config_dir: str | os.PathLike[str] | None = None) -> Path:
+    """Return the dotenv configuration file for ``config_dir``."""
+    return (Path(config_dir) if config_dir else default_config_dir()) / "config.env"
+
+
+def save_config(executable: str, config_dir: str | os.PathLike[str] | None = None) -> Path:
+    """Persist the configured Duplicacy executable and return its file path."""
+    path = config_file(config_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"DUPLICACY_EXECUTABLE={executable}\n")
+    return path
+
+
 def resolve_executable(
     explicit: str | None,
     env_var: str = "DUPLICACY_EXECUTABLE",
     default: str = "duplicacy",
+    config_dir: str | os.PathLike[str] | None = None,
 ) -> str:
     """Return the executable to use.
 
-    Precedence: explicit argument, then the environment variable (typically
-    set via a ``.env`` file, see :func:`load_env`), then the default name
-    looked up on PATH. Raises ``CliError`` if nothing usable is found.
+    Precedence: explicit argument, then ``env_var`` from the process
+    environment, the selected config file, or the working-directory ``.env``;
+    finally the default name is looked up on PATH. Raises ``CliError`` if
+    nothing usable is found.
     """
     if explicit:
         return explicit
+    load_env(config_file(config_dir))
     load_env()
     from_env = os.environ.get(env_var)
     if from_env:

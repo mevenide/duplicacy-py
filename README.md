@@ -13,12 +13,21 @@ Run the installed CLI with a command:
 ```sh
 uv run duplicacy-py backup --repository /path/to/repo
 uv run duplicacy-py prune --repository /path/to/repo --id <snapshot id>
+uv run duplicacy-py config --duplicacy /path/to/duplicacy
 ```
 
 The available commands are:
 
 - `backup` runs `duplicacy backup` in the repository.
 - `prune` lists revisions for the supplied snapshot id.
+- `config` saves the Duplicacy executable path for future commands.
+
+Configuration is stored as `config.env` in the per-user configuration directory.
+Use `--config /path/to/config-dir` on any command to select a different directory.
+The default follows the platform conventions provided by the `platformdirs`
+package: `~/.config/duplicacy-py` on Linux, `%APPDATA%\\duplicacy-py` on
+Windows, and `~/Library/Application Support/duplicacy-py` on macOS. Linux also
+honors `XDG_CONFIG_HOME` when it is set.
 
 The console command is declared in `pyproject.toml` and points to the
 `duplicacy_scripts.main:main` entry point. The implementation lives in

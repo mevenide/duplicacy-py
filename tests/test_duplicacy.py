@@ -13,7 +13,7 @@ FAKE_DUPLICACY = "/fake/duplicacy"
 
 @pytest.fixture()
 def fake_executable(monkeypatch: pytest.MonkeyPatch) -> str:
-    monkeypatch.setattr(duplicacy, "resolve_executable", lambda explicit: FAKE_DUPLICACY)
+    monkeypatch.setattr(duplicacy, "resolve_executable", lambda explicit, config_dir=None: FAKE_DUPLICACY)
     return FAKE_DUPLICACY
 
 
@@ -32,8 +32,18 @@ class TestParseArgs:
         assert args.command == "prune"
         assert args.id == "vm"
 
+    def test_parses_config(self) -> None:
+        args = duplicacy.parse_args(["config", "--config", "/tmp/settings", "--duplicacy", "/opt/duplicacy"])
+        assert args.command == "config"
+        assert args.config == "/tmp/settings"
+        assert args.duplicacy == "/opt/duplicacy"
+
 
 class TestMain:
+    def test_saves_config(self, tmp_path, capsys) -> None:
+        assert duplicacy.main(["config", "--config", str(tmp_path), "--duplicacy", "/opt/duplicacy"]) == 0
+        assert (tmp_path / "config.env").read_text() == "DUPLICACY_EXECUTABLE=/opt/duplicacy\n"
+        assert "Configuration saved" in capsys.readouterr().out
     @pytest.mark.parametrize(
         ("argv", "expected_args", "output"),
         [

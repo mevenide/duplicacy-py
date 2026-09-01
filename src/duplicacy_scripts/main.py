@@ -11,16 +11,28 @@ from __future__ import annotations
 import argparse
 import sys
 
-from duplicacy_scripts.cli import CliError, resolve_executable, run_cli
+from duplicacy_scripts.cli import CliError, resolve_executable, run_cli, save_config
 
 
-def _add_common_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--repository", required=True, help="duplicacy repository directory")
+def _add_common_arguments(
+    parser: argparse.ArgumentParser,
+    *,
+    repository: bool = True,
+    executable: bool = True,
+) -> None:
+    if repository:
+        parser.add_argument("--repository", required=True, help="duplicacy repository directory")
     parser.add_argument(
-        "--duplicacy",
+        "--config",
         default=None,
-        help="path to the duplicacy executable (default: $DUPLICACY_EXECUTABLE or 'duplicacy' on PATH)",
+        help="configuration directory (default: platform user config directory)",
     )
+    if executable:
+        parser.add_argument(
+            "--duplicacy",
+            default=None,
+            help="path to the duplicacy executable (default: saved config, $DUPLICACY_EXECUTABLE, or 'duplicacy' on PATH)",
+        )
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -34,17 +46,34 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     _add_common_arguments(prune)
     prune.add_argument("--id", required=True, help="snapshot id to list revisions for")
 
+    config = commands.add_parser("config", help="configure the Duplicacy executable")
+    _add_common_arguments(config, repository=False, executable=False)
+    config.add_argument(
+        "--duplicacy",
+        required=True,
+        help="path to the duplicacy executable to save",
+    )
+
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    if args.command == "config":
+        try:
+            path = save_config(args.duplicacy, args.config)
+        except OSError as exc:
+            print(f"Could not write configuration: {exc}", file=sys.stderr)
+            return 1
+        print(f"Configuration saved to {path}")
+        return 0
+
     command_args = ["list" if args.command == "prune" else args.command]
     if args.command == "prune":
         command_args.extend(["-id", args.id])
 
     try:
-        executable = resolve_executable(args.duplicacy)
+        executable = resolve_executable(args.duplicacy, config_dir=args.config)
         result = run_cli([executable, *command_args], cwd=args.repository)
     except CliError as exc:
         print(exc, file=sys.stderr)
