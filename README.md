@@ -16,6 +16,7 @@ uv run duplicacy-py list
 uv run duplicacy-py prune --snapshot-id <snapshot id>
 uv run duplicacy-py config init --storage <storage url>
 uv run duplicacy-py config var duplicacy=/path/to/duplicacy
+uv run duplicacy-py config retention-policy add --age 7d --frequency 1h
 ```
 
 The available commands are:
@@ -38,6 +39,16 @@ The available commands are:
   configuration file is reported and left untouched, and an already
   initialized `repo` directory is left untouched as well.
 - `config var NAME=VALUE` saves a named configuration variable for future commands.
+- `config retention-policy add --age <duration> --frequency <duration>` appends
+  an entry to the retention policy, a list of `{age, frequency}` entries saved
+  under the `retentionPolicy` key in `config.yaml`. Both durations are parsed
+  with the [`pytimeparse2`](https://pypi.org/project/pytimeparse2/) library and
+  accept strings such as `30s`, `5m`, `1h`, `1d`, `1w`, `1y`, spelled-out units
+  (`1 month`), and compounds like `1h30m`.
+- `config retention-policy list` prints the retention policy entries, one
+  indexed line per entry.
+- `config retention-policy remove INDEX` removes the entry at the zero-based
+  index shown by `config retention-policy list`.
 
 Configuration is stored as `config.yaml` in the per-user configuration directory.
 Use `--config /path/to/config-dir` on any command to select a different directory.
@@ -45,6 +56,21 @@ The default follows the platform conventions provided by the `platformdirs`
 package: `~/.config/duplicacy-py` on Linux, `%APPDATA%\\duplicacy-py` on
 Windows, and `~/Library/Application Support/duplicacy-py` on macOS. Linux also
 honors `XDG_CONFIG_HOME` when it is set.
+
+The `retentionPolicy` key is a list of `{age, frequency}` entries, for example:
+
+```yaml
+retentionPolicy:
+- age: 7d
+  frequency: 1h
+- age: 1w
+  frequency: 5m
+```
+
+Duration strings are parsed with [`pytimeparse2`](https://pypi.org/project/pytimeparse2/)
+through `src/duplicacy_scripts/duration.py` (`parse_duration` returns seconds,
+`DurationError` signals invalid input). Suffixes are case-insensitive, so `1M`
+parses as one minute, not one month; spell months as `1month`.
 
 The console command is declared in `pyproject.toml` and points to the
 `duplicacy_scripts.main:main` entry point. The entry point assembles the

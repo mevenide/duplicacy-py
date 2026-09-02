@@ -8,7 +8,18 @@ from pathlib import Path
 
 import pytest
 
-from duplicacy_scripts._cli import CliError, default_config_dir, init_config, load_env, resolve_executable, run_cli, save_config
+from duplicacy_scripts._cli import (
+    CliError,
+    default_config_dir,
+    init_config,
+    load_config,
+    load_env,
+    load_retention_policy,
+    resolve_executable,
+    run_cli,
+    save_config,
+    save_retention_policy,
+)
 
 
 class TestConfig:
@@ -37,6 +48,47 @@ class TestConfig:
         save_config("other", "value", tmp_path)
         save_config("duplicacy", "/opt/tools/duplicacy", tmp_path)
         assert (tmp_path / "config.yaml").read_text() == "duplicacy: /opt/tools/duplicacy\nother: value\n"
+
+    def test_load_config_returns_mapping(self, tmp_path: Path) -> None:
+        save_config("duplicacy", "/opt/tools/duplicacy", tmp_path)
+        assert load_config(tmp_path) == {"duplicacy": "/opt/tools/duplicacy"}
+
+    def test_load_config_missing_file_yields_empty_mapping(self, tmp_path: Path) -> None:
+        assert load_config(tmp_path) == {}
+
+    def test_load_config_rejects_non_mapping(self, tmp_path: Path) -> None:
+        (tmp_path / "config.yaml").write_text("- just\n- a\n- list\n")
+        with pytest.raises(TypeError):
+            load_config(tmp_path)
+
+
+class TestRetentionPolicy:
+    def test_missing_file_yields_empty_policy(self, tmp_path: Path) -> None:
+        assert load_retention_policy(tmp_path) == []
+
+    def test_round_trips_entries(self, tmp_path: Path) -> None:
+        entries = [{"age": "7d", "frequency": "1h"}, {"age": "1w", "frequency": "5m"}]
+        path = save_retention_policy(entries, tmp_path)
+        assert path == tmp_path / "config.yaml"
+        assert load_retention_policy(tmp_path) == entries
+
+    def test_preserves_other_variables(self, tmp_path: Path) -> None:
+        save_config("duplicacy", "/opt/tools/duplicacy", tmp_path)
+        save_retention_policy([{"age": "7d", "frequency": "1h"}], tmp_path)
+        assert load_config(tmp_path) == {
+            "duplicacy": "/opt/tools/duplicacy",
+            "retentionPolicy": [{"age": "7d", "frequency": "1h"}],
+        }
+
+    def test_rejects_non_list_policy(self, tmp_path: Path) -> None:
+        (tmp_path / "config.yaml").write_text("retentionPolicy: 7d\n")
+        with pytest.raises(TypeError):
+            load_retention_policy(tmp_path)
+
+    def test_rejects_entry_without_frequency(self, tmp_path: Path) -> None:
+        (tmp_path / "config.yaml").write_text("retentionPolicy:\n- age: 7d\n")
+        with pytest.raises(TypeError):
+            load_retention_policy(tmp_path)
 
 
 class TestResolveExecutable:

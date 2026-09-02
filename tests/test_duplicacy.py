@@ -446,3 +446,74 @@ class TestMain:
     def test_rejects_invalid_config_variable(self, tmp_path, capsys) -> None:
         assert duplicacy.main(["config", "var", "--config", str(tmp_path), "duplicacy"]) == 1
         assert "NAME=VALUE" in capsys.readouterr().err
+
+
+class TestRetention:
+    def test_parses_retention_add(self) -> None:
+        args = duplicacy.parse_args(
+            ["config", "retention-policy", "add", "--age", "7d", "--frequency", "1h"]
+        )
+        assert args.command == "config"
+        assert args.config_command == "retention-policy"
+        assert args.retention_command == "add"
+        assert args.age == "7d"
+        assert args.frequency == "1h"
+
+    def test_parses_retention_list_and_remove(self) -> None:
+        args = duplicacy.parse_args(["config", "retention-policy", "list"])
+        assert args.config_command == "retention-policy"
+        assert args.retention_command == "list"
+        args = duplicacy.parse_args(["config", "retention-policy", "remove", "2"])
+        assert args.retention_command == "remove"
+        assert args.index == 2
+
+    def test_retention_requires_subcommand(self) -> None:
+        with pytest.raises(SystemExit):
+            duplicacy.parse_args(["config", "retention-policy"])
+
+    def test_add_appends_entry(self, tmp_path: Path, capsys) -> None:
+        argv = ["config", "retention-policy", "add", "--config", str(tmp_path), "--age", "7d", "--frequency", "1h"]
+        assert duplicacy.main(argv) == 0
+        assert duplicacy.main(argv) == 0
+        assert (tmp_path / "config.yaml").read_text() == (
+            "retentionPolicy:\n- age: 7d\n  frequency: 1h\n- age: 7d\n  frequency: 1h\n"
+        )
+        assert "Retention policy saved" in capsys.readouterr().out
+
+    def test_add_rejects_invalid_duration(self, tmp_path, capsys) -> None:
+        argv = ["config", "retention-policy", "add", "--config", str(tmp_path), "--age", "7x", "--frequency", "1h"]
+        assert duplicacy.main(argv) == 1
+        assert "invalid duration" in capsys.readouterr().err
+        assert not (tmp_path / "config.yaml").exists()
+
+    def test_list_prints_indexed_entries(self, tmp_path, capsys) -> None:
+        (tmp_path / "config.yaml").write_text(
+            "retentionPolicy:\n- age: 7d\n  frequency: 1h\n- age: 1w\n  frequency: 5m\n"
+        )
+        assert duplicacy.main(["config", "retention-policy", "list", "--config", str(tmp_path)]) == 0
+        assert capsys.readouterr().out == "0: age=7d frequency=1h\n1: age=1w frequency=5m\n"
+
+    def test_list_empty_policy(self, tmp_path, capsys) -> None:
+        assert duplicacy.main(["config", "retention-policy", "list", "--config", str(tmp_path)]) == 0
+        assert "No retention policy entries" in capsys.readouterr().out
+
+    def test_remove_deletes_entry_by_index(self, tmp_path, capsys) -> None:
+        (tmp_path / "config.yaml").write_text(
+            "retentionPolicy:\n- age: 7d\n  frequency: 1h\n- age: 1w\n  frequency: 5m\n"
+        )
+        assert duplicacy.main(["config", "retention-policy", "remove", "0", "--config", str(tmp_path)]) == 0
+        assert (tmp_path / "config.yaml").read_text() == "retentionPolicy:\n- age: 1w\n  frequency: 5m\n"
+        assert "Removed entry 0" in capsys.readouterr().out
+
+    def test_remove_rejects_out_of_range_index(self, tmp_path, capsys) -> None:
+        (tmp_path / "config.yaml").write_text("retentionPolicy:\n- age: 7d\n  frequency: 1h\n")
+        assert duplicacy.main(["config", "retention-policy", "remove", "1", "--config", str(tmp_path)]) == 1
+        assert "index out of range" in capsys.readouterr().err
+
+    def test_preserves_other_variables(self, tmp_path, capsys) -> None:
+        (tmp_path / "config.yaml").write_text("duplicacy: /opt/duplicacy\n")
+        argv = ["config", "retention-policy", "add", "--config", str(tmp_path), "--age", "1w", "--frequency", "5m"]
+        assert duplicacy.main(argv) == 0
+        assert (tmp_path / "config.yaml").read_text() == (
+            "duplicacy: /opt/duplicacy\nretentionPolicy:\n- age: 1w\n  frequency: 5m\n"
+        )

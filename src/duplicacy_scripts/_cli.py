@@ -77,6 +77,22 @@ def repo_dir(config_dir: str | os.PathLike[str] | None = None) -> Path:
     return (Path(config_dir) if config_dir else default_config_dir()) / "repo"
 
 
+def load_config(config_dir: str | os.PathLike[str] | None = None) -> dict:
+    """Return the configuration mapping from the configuration file.
+
+    A missing file yields an empty mapping; anything other than a mapping
+    raises ``TypeError``.
+    """
+    path = config_file(config_dir)
+    if not path.exists():
+        return {}
+    with path.open() as config_stream:
+        configuration = yaml.safe_load(config_stream) or {}
+    if not isinstance(configuration, dict):
+        raise TypeError("configuration must contain a YAML mapping")
+    return configuration
+
+
 def save_config(
     variable: str,
     value: str,
@@ -85,13 +101,38 @@ def save_config(
     """Persist a configuration variable and return the configuration path."""
     path = config_file(config_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
-    configuration: dict[str, str] = {}
-    if path.exists():
-        with path.open() as config_stream:
-            configuration = yaml.safe_load(config_stream) or {}
-        if not isinstance(configuration, dict):
-            raise TypeError("configuration must contain a YAML mapping")
+    configuration = load_config(config_dir)
     configuration[variable] = value
+    with path.open("w") as config_stream:
+        yaml.safe_dump(configuration, config_stream, sort_keys=True)
+    return path
+
+
+def load_retention_policy(config_dir: str | os.PathLike[str] | None = None) -> list[dict[str, str]]:
+    """Return the ``retentionPolicy`` entries from the configuration file.
+
+    Each entry is a mapping with ``age`` and ``frequency`` duration strings.
+    A missing file or key yields an empty list; a non-list or malformed entry
+    raises ``TypeError``.
+    """
+    policy = load_config(config_dir).get("retentionPolicy", [])
+    if not isinstance(policy, list) or any(
+        not isinstance(entry, dict) or "age" not in entry or "frequency" not in entry
+        for entry in policy
+    ):
+        raise TypeError("retentionPolicy must contain a list of {age, frequency} mappings")
+    return [{"age": str(entry["age"]), "frequency": str(entry["frequency"])} for entry in policy]
+
+
+def save_retention_policy(
+    entries: list[dict[str, str]],
+    config_dir: str | os.PathLike[str] | None = None,
+) -> Path:
+    """Persist ``retentionPolicy`` entries and return the configuration path."""
+    path = config_file(config_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    configuration = load_config(config_dir)
+    configuration["retentionPolicy"] = entries
     with path.open("w") as config_stream:
         yaml.safe_dump(configuration, config_stream, sort_keys=True)
     return path
@@ -239,7 +280,9 @@ __all__ = [
     "config_file",
     "default_config_dir",
     "init_config",
+    "load_config",
     "load_env",
+    "load_retention_policy",
     "prepare_repo",
     "repo_dir",
     "resolve_executable",
@@ -247,5 +290,6 @@ __all__ = [
     "run_and_print",
     "run_cli",
     "save_config",
+    "save_retention_policy",
     "snapshot_ids",
 ]
