@@ -26,13 +26,20 @@ The available commands are:
 - `list` prints the snapshot ids found in the repository (one per line,
   sorted, duplicates removed).
 - `prune [--snapshot-id <snapshot id>]` lists the revisions for the supplied
-  snapshot id (one per line, sorted by revision number) as
-  `<revision> created at <YYYY-MM-DD HH:MM>`, parsed from the `duplicacy list`
-  output, running in the `repo` subdirectory of the configuration directory.
-  When `--snapshot-id` is omitted and stdin is interactive, an up/down arrow
-  picker (with Enter to select) offers the snapshot ids found in the
-  repository; when stdin is not interactive, it lists the available ids and
-  exits with an error.
+  snapshot id, parsed from the `duplicacy list` output, running in the `repo`
+  subdirectory of the configuration directory. When the `retentionPolicy`
+  configuration key contains ages, the revisions are grouped under retention
+  buckets (see below): one chronological header per bucket,
+  `Bucket <index>: [<start>, <end>)` (ends exclusive; `the beginning` and
+  `now` for the unbounded outermost buckets), with the revisions of that
+  bucket printed as `<revision> created at <YYYY-MM-DD HH:MM>` underneath;
+  empty buckets print only their header. Without a retention policy, the
+  revisions are printed as before (one per line, sorted by revision number).
+  An invalid or non-positive retention age exits with an error before the
+  duplicacy CLI runs. When `--snapshot-id` is omitted and stdin is
+  interactive, an up/down arrow picker (with Enter to select) offers the
+  snapshot ids found in the repository; when stdin is not interactive, it
+  lists the available ids and exits with an error.
 - `config init --storage <storage url>` creates the configuration file and
   initializes a duplicacy repository in the `repo` subdirectory of the
   configuration directory (snapshot id: `duplicacy-py-dummy`). An existing
@@ -71,6 +78,16 @@ Duration strings are parsed with [`pytimeparse2`](https://pypi.org/project/pytim
 through `src/duplicacy_scripts/duration.py` (`parse_duration` returns seconds,
 `DurationError` signals invalid input). Suffixes are case-insensitive, so `1M`
 parses as one minute, not one month; spell months as `1month`.
+
+The `prune` command uses the retention policy ages to classify revisions into
+buckets relative to the current time (`src/duplicacy_scripts/retention.py`).
+The ages divide time into `n + 1` chronological buckets for `n` distinct ages:
+the earliest bucket holds everything older than the oldest age (unbounded
+past), the latest holds everything newer than the newest age up to now
+(unbounded future), and each remaining bucket spans the gap between two
+consecutive ages. Buckets are half-open intervals — inclusive start, exclusive
+end — and duplicate ages (e.g. `7d` and `1w`) are merged into one boundary.
+For the policy above with ages `7d` and `1w` this yields two buckets.
 
 The console command is declared in `pyproject.toml` and points to the
 `duplicacy_scripts.main:main` entry point. The entry point assembles the
