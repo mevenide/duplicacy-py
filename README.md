@@ -32,11 +32,13 @@ The available commands are:
   buckets (see below): one chronological header per bucket,
   `Bucket <index>: [<start>, <end>)` (ends exclusive; `the beginning` and
   `now` for the unbounded outermost buckets), with the revisions of that
-  bucket printed as `<revision> created at <YYYY-MM-DD HH:MM>` underneath;
-  empty buckets print only their header. Without a retention policy, the
-  revisions are printed as before (one per line, sorted by revision number).
-  An invalid or non-positive retention age exits with an error before the
-  duplicacy CLI runs. When `--snapshot-id` is omitted and stdin is
+  bucket printed as `<revision> created at <YYYY-MM-DD HH:MM> kept|pruned`
+  underneath: the retention policy selects one revision per frequency
+  timestamp (marked `kept`) and the rest are marked `pruned`; empty buckets
+  print only their header. Without a retention policy, the revisions are
+  printed as before (one per line, sorted by revision number). An invalid,
+  non-positive, or unparsable retention age or frequency exits with an error
+  before the duplicacy CLI runs. When `--snapshot-id` is omitted and stdin is
   interactive, an up/down arrow picker (with Enter to select) offers the
   snapshot ids found in the repository; when stdin is not interactive, it
   lists the available ids and exits with an error.
@@ -80,14 +82,27 @@ through `src/duplicacy_scripts/duration.py` (`parse_duration` returns seconds,
 parses as one minute, not one month; spell months as `1month`.
 
 The `prune` command uses the retention policy ages to classify revisions into
-buckets relative to the current time (`src/duplicacy_scripts/retention.py`).
-The ages divide time into `n + 1` chronological buckets for `n` distinct ages:
-the earliest bucket holds everything older than the oldest age (unbounded
-past), the latest holds everything newer than the newest age up to now
-(unbounded future), and each remaining bucket spans the gap between two
-consecutive ages. Buckets are half-open intervals — inclusive start, exclusive
-end — and duplicate ages (e.g. `7d` and `1w`) are merged into one boundary.
-For the policy above with ages `7d` and `1w` this yields two buckets.
+buckets relative to midnight (the start of today,
+`src/duplicacy_scripts/retention.py`), so bucket boundaries and frequency
+timestamps fall exactly on calendar days and the results do not depend on the
+time of day the command runs. The ages divide time into `n + 1` chronological
+buckets for `n` distinct ages: the earliest bucket holds everything older than
+the oldest age (unbounded past), the latest holds everything newer than the
+newest age up to now (unbounded future), and each remaining bucket spans the
+gap between two consecutive ages. Buckets are half-open intervals — inclusive
+start, exclusive end — and duplicate ages (e.g. `7d` and `1w`) are merged into
+one boundary. For the policy above with ages `7d` and `1w` this yields two
+buckets.
+
+Each bucket is thinned by the frequency of the entry whose age matches the
+bucket's end boundary: ideal timestamps are laid out one frequency apart,
+anchored at the bucket's end (midnight) and stepping backwards down to the
+bucket's start (for the unbounded-past bucket, down to the first tick at or
+below the oldest revision), and the revision closest to each timestamp is
+kept — the
+latest revision wins ties — while the rest are pruned. Revisions newer than
+the smallest age (the newest bucket) are always kept, matching the Duplicacy
+CLI's prune behaviour. With no retention policy everything is kept.
 
 The console command is declared in `pyproject.toml` and points to the
 `duplicacy_scripts.main:main` entry point. The entry point assembles the

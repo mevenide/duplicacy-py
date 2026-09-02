@@ -1,19 +1,36 @@
-"""Retention policy buckets for classifying snapshot revisions by age.
+"""Retention policy buckets and frequency-based revision selection.
 
 A retention policy is a list of ``{age, frequency}`` entries (see
 ``config retention-policy``). The ages divide time relative to a reference
 point (now) into chronological buckets, one more than the number of distinct
 ages: everything older than the oldest age, one bucket per gap between
 consecutive ages, and everything newer than the newest age. All datetimes
-are naive local times, matching the ``duplicacy list`` output.
+are naive local times, matching the ``duplicacy list`` output. Callers pass
+midnight (the start of today) as ``now`` so every boundary and tick is
+aligned to midnight and results do not depend on the time of day.
+
+Each bucket older than the newest age is thinned by its entry's frequency:
+ideal timestamps are laid out on a grid anchored at the bucket's end
+boundary, spaced one frequency apart and stopping at the bucket's start
+(for the unbounded-past bucket, at the first tick at or below the oldest
+revision), and the revision closest to each grid timestamp is kept — the
+latest revision wins ties — while the rest are pruned. The newest bucket
+(revisions newer than the smallest age) is always kept, matching the
+Duplicacy CLI's prune behaviour. With midnight anchoring, day-and-larger
+frequencies tick exactly at midnight.
 """
 
 from __future__ import annotations
 
+from bisect import bisect_left
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import TYPE_CHECKING
 
 from duplicacy_scripts.duration import parse_duration
+
+if TYPE_CHECKING:
+    from duplicacy_scripts._cli import Revision
 
 
 @dataclass
@@ -38,11 +55,13 @@ def buckets(retention_policy: list[dict[str, str]], now: datetime) -> list[Bucke
     """Return the retention buckets for ``retentionPolicy`` entries at ``now``.
 
     Ages are duration strings measured backwards from ``now``; duplicate ages
-    are merged. Buckets are chronological (oldest first): the earliest covers
-    everything older than the oldest age, the latest everything newer than
-    the newest age, and each remaining bucket spans the gap between two
-    consecutive ages. An empty policy yields no buckets. Raises ``ValueError``
-    (including ``DurationError``) for an unparsable or non-positive age.
+    are merged. Pass midnight (the start of today) as ``now`` to align every
+    boundary to midnight. Buckets are chronological (oldest first): the
+    earliest covers everything older than the oldest age, the latest
+    everything newer than the newest age, and each remaining bucket spans
+    the gap between two consecutive ages. An empty policy yields no buckets.
+    Raises ``ValueError`` (including ``DurationError``) for an unparsable or
+    non-positive age.
     """
     ages = sorted({parse_duration(entry["age"]) for entry in retention_policy})
     if ages and ages[0] <= 0:
@@ -58,3 +77,97 @@ def buckets(retention_policy: list[dict[str, str]], now: datetime) -> list[Bucke
     if boundaries:
         bucket_list.append(Bucket(start, None))
     return bucket_list
+
+
+def select_revisions(
+    revisions: list[Revision],
+    retention_policy: list[dict[str, str]],
+    now: datetime,
+) -> tuple[set[int], set[int]]:
+    """Return the revision numbers kept and pruned under the retention policy.
+
+    Revisions are classified into the retention buckets (see :func:`buckets`).
+    Every bucket except the newest is thinned: ideal timestamps are laid out
+    one frequency apart, anchored at the bucket's end boundary and stepping
+    backwards down to the bucket's start (or, for the unbounded-past bucket,
+    down to the first tick at or below the oldest revision, so the deepest
+    history always keeps a revision), and the revision closest to each
+    timestamp is kept — the latest revision wins ties. Revisions newer than
+    the smallest age — the newest bucket — are always kept, matching the
+    Duplicacy CLI's prune behaviour. An empty policy keeps everything. Pass
+    midnight (the start of today) as ``now`` to anchor the buckets and grid
+    ticks to midnight.
+
+    Duplicate ages are merged into one bucket and the first policy entry
+    with that age supplies the frequency. Raises ``ValueError`` (including
+    ``DurationError``) for an unparsable or non-positive age or frequency.
+    """
+    frequencies: dict[float, timedelta] = {}
+    for entry in retention_policy:
+        age = parse_duration(entry["age"])
+        frequency = parse_duration(entry["frequency"])
+        if frequency <= 0:
+            raise ValueError("retention policy frequencies must be positive")
+        frequencies.setdefault(age, timedelta(seconds=frequency))
+    policy_buckets = buckets(retention_policy, now)
+    if not policy_buckets:
+        return {revision.revision for revision in revisions}, set()
+    kept: set[int] = set()
+    # Bucket i ends at now - ages_desc[i], so pair the chronological buckets
+    # with the entries sorted by descending age.
+    for bucket, age in zip(policy_buckets[:-1], sorted(frequencies, reverse=True)):
+        in_bucket = [revision for revision in revisions if bucket.contains(revision.created_at)]
+        if not in_bucket:
+            continue
+        in_bucket.sort(key=lambda revision: revision.created_at)
+        times = [revision.created_at for revision in in_bucket]
+        floor = bucket.start if bucket.start is not None else in_bucket[0].created_at
+        for timestamp in _grid_timestamps(bucket, frequencies[age], floor):
+            kept.add(_closest_revision(in_bucket, times, timestamp).revision)
+    for revision in revisions:
+        if policy_buckets[-1].contains(revision.created_at):
+            kept.add(revision.revision)
+    pruned = {revision.revision for revision in revisions} - kept
+    return kept, pruned
+
+
+def _closest_revision(
+    in_bucket: list[Revision],
+    times: list[datetime],
+    timestamp: datetime,
+) -> Revision:
+    """Return the revision in ``in_bucket`` closest to ``timestamp``.
+
+    ``in_bucket`` must be sorted by ``created_at`` with the parallel list
+    ``times``. Equidistant candidates resolve to the latest revision.
+    """
+    index = bisect_left(times, timestamp)
+    candidates = []
+    if index > 0:
+        candidates.append(in_bucket[index - 1])
+    if index < len(in_bucket):
+        candidates.append(in_bucket[index])
+    return min(candidates, key=lambda revision: (abs(revision.created_at - timestamp), -revision.revision))
+
+
+def _grid_timestamps(bucket: Bucket, frequency: timedelta, floor: datetime) -> list[datetime]:
+    """Return the ideal timestamps for ``bucket`` spaced one ``frequency`` apart.
+
+    The grid starts at the bucket's end boundary and steps backwards one
+    frequency at a time. Bounded buckets stop at their start (inclusive),
+    so every timestamp lies within the bucket; the unbounded-past bucket
+    continues to the first tick at or below ``floor`` (the oldest
+    revision), so the deepest history always keeps a revision.
+    """
+    timestamps: list[datetime] = []
+    moment = bucket.end
+    if bucket.start is None:
+        while moment > floor:
+            timestamps.append(moment)
+            moment -= frequency
+        timestamps.append(moment)
+    else:
+        while moment >= floor:
+            timestamps.append(moment)
+            moment -= frequency
+    return timestamps

@@ -21,7 +21,11 @@ FAKE_DUPLICACY = "/fake/duplicacy"
 
 
 class FixedDateTime(datetime):
-    """A ``datetime`` whose ``now()`` is fixed, for deterministic bucket tests."""
+    """A ``datetime`` whose ``now()`` is fixed, for deterministic bucket tests.
+
+    ``prune`` anchors bucket boundaries at midnight (the start of today),
+    so the fixed 12:00 ``now()`` verifies that the command truncates it.
+    """
 
     @classmethod
     def now(cls, tz=None) -> datetime:  # noqa: ARG003
@@ -390,12 +394,12 @@ class TestMain:
 
         assert duplicacy.main(["prune", "--config", str(tmp_path), "--snapshot-id", "vm"]) == 0
         assert capsys.readouterr().out == (
-            "Bucket 0: [the beginning, 2026-08-25 12:00)\n"
-            "1 created at 2026-08-20 10:00\n"
-            "Bucket 1: [2026-08-25 12:00, 2026-08-31 12:00)\n"
-            "2 created at 2026-08-30 09:00\n"
-            "Bucket 2: [2026-08-31 12:00, now)\n"
-            "3 created at 2026-09-01 11:00\n"
+            "Bucket 0: [the beginning, 2026-08-25 00:00)\n"
+            "1 created at 2026-08-20 10:00 kept\n"
+            "Bucket 1: [2026-08-25 00:00, 2026-08-31 00:00)\n"
+            "2 created at 2026-08-30 09:00 kept\n"
+            "Bucket 2: [2026-08-31 00:00, now)\n"
+            "3 created at 2026-09-01 11:00 kept\n"
         )
 
     def test_prune_prints_empty_buckets_without_revisions(
@@ -420,9 +424,45 @@ class TestMain:
 
         assert duplicacy.main(["prune", "--config", str(tmp_path), "--snapshot-id", "vm"]) == 0
         assert capsys.readouterr().out == (
-            "Bucket 0: [the beginning, 2026-08-31 12:00)\n"
-            "5 created at 2026-08-01 10:00\n"
-            "Bucket 1: [2026-08-31 12:00, now)\n"
+            "Bucket 0: [the beginning, 2026-08-31 00:00)\n"
+            "5 created at 2026-08-01 10:00 kept\n"
+            "Bucket 1: [2026-08-31 00:00, now)\n"
+        )
+
+    def test_prune_marks_revisions_kept_or_pruned(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        fake_executable: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        (tmp_path / "repo").mkdir()
+        (tmp_path / "config.yaml").write_text("retentionPolicy:\n- age: 7d\n  frequency: 7d\n")
+        list_output = (
+            "Storage set to /tmp/storage\n"
+            "Snapshot vm revision 1 created at 2026-08-24 10:00\n"
+            "Snapshot vm revision 2 created at 2026-08-24 11:00\n"
+            "Snapshot vm revision 3 created at 2026-08-24 14:00\n"
+        )
+
+        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> _cli.CliResult:
+            return _cli.CliResult(args=args_list, returncode=0, stdout=list_output, stderr="")
+
+        monkeypatch.setattr(_cli, "run_cli", fake_run_cli)
+        monkeypatch.setattr(prune_command, "datetime", FixedDateTime)
+
+        # now() is fixed at noon on 2026-09-01 but prune anchors at
+        # midnight, so the 7d boundary falls at 08-25 00:00 and the
+        # unbounded-past bucket's grid (frequency 7d) ticks at 08-25 and
+        # 08-18 00:00; revisions 1 and 3 are closest to those ticks and
+        # revision 2 is never the closest.
+        assert duplicacy.main(["prune", "--config", str(tmp_path), "--snapshot-id", "vm"]) == 0
+        assert capsys.readouterr().out == (
+            "Bucket 0: [the beginning, 2026-08-25 00:00)\n"
+            "1 created at 2026-08-24 10:00 kept\n"
+            "2 created at 2026-08-24 11:00 pruned\n"
+            "3 created at 2026-08-24 14:00 kept\n"
+            "Bucket 1: [2026-08-25 00:00, now)\n"
         )
 
     def test_prune_returns_one_on_invalid_retention_age(
@@ -434,6 +474,24 @@ class TestMain:
     ) -> None:
         (tmp_path / "repo").mkdir()
         (tmp_path / "config.yaml").write_text("retentionPolicy:\n- age: 7x\n  frequency: 1h\n")
+
+        def fail_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> _cli.CliResult:
+            raise AssertionError("the duplicacy CLI should not run for an invalid retention policy")
+
+        monkeypatch.setattr(_cli, "run_cli", fail_run_cli)
+
+        assert duplicacy.main(["prune", "--config", str(tmp_path), "--snapshot-id", "vm"]) == 1
+        assert "invalid duration" in capsys.readouterr().err
+
+    def test_prune_returns_one_on_invalid_retention_frequency(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        fake_executable: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        (tmp_path / "repo").mkdir()
+        (tmp_path / "config.yaml").write_text("retentionPolicy:\n- age: 7d\n  frequency: 1x\n")
 
         def fail_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> _cli.CliResult:
             raise AssertionError("the duplicacy CLI should not run for an invalid retention policy")
