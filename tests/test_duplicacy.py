@@ -305,6 +305,28 @@ class TestMain:
         assert captured["cwd"] == tmp_path / "repo"
         assert capsys.readouterr().out == "5 created at 2026-01-01 09:45\n12 created at 2026-01-01 10:00\n"
 
+    def test_prune_forwards_duplicacy_stderr_to_stderr(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        fake_executable: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # Regression test: prune parsed stdout only, so duplicacy's stderr
+        # diagnostics (e.g. "Storage set to ...") never reached the user.
+        (tmp_path / "repo").mkdir()
+        stderr = "Storage set to /tmp/storage\n"
+
+        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> _cli.CliResult:
+            return _cli.CliResult(args=args_list, returncode=0, stdout="", stderr=stderr)
+
+        monkeypatch.setattr(_cli, "run_cli", fake_run_cli)
+
+        assert duplicacy.main(["prune", "--config", str(tmp_path), "--snapshot-id", "vm"]) == 0
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert captured.err == stderr
+
     def test_prune_picker_cancelled_returns_one(
         self,
         tmp_path: Path,

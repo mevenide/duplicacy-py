@@ -22,6 +22,16 @@ def select_option(message: str, choices: list[str]) -> str | None:
     return questionary.select(message, choices=choices).ask()
 
 
+def _print_duplicacy_stderr(stderr: str) -> None:
+    """Forward duplicacy's stderr diagnostics (e.g. ``Storage set to ...``).
+
+    The duplicacy CLI logs diagnostics to stderr; forwarding them shows the
+    storage context while stdout stays parse-only.
+    """
+    if stderr:
+        print(stderr, end="", file=sys.stderr)
+
+
 def _select_snapshot_id(executable: str, repo) -> str | None:
     """Let the user pick a snapshot id, or return None after printing an error."""
     try:
@@ -29,6 +39,7 @@ def _select_snapshot_id(executable: str, repo) -> str | None:
     except _cli.CliError as exc:
         print(exc, file=sys.stderr)
         return None
+    _print_duplicacy_stderr(result.stderr)
     ids = _cli.snapshot_ids(result.stdout)
     if not ids:
         print("No snapshots found in the repository", file=sys.stderr)
@@ -98,6 +109,7 @@ def run(args: argparse.Namespace) -> int:
         print(exc, file=sys.stderr)
         return 1
     result = _cli.run_cli([executable, "list", "-id", snapshot_id], cwd=repo)
+    _print_duplicacy_stderr(result.stderr)
     revisions = _cli.revisions(result.stdout)
     if not policy_buckets:
         for revision in revisions:

@@ -116,16 +116,25 @@ non-executable script (mode 0o644) raises `CliError` with `returncode is None`
 (previously the raw `FileNotFoundError` traceback above). Full suite:
 177 passed.
 
-### F3. `prune` never prints the duplicacy stderr banner (Low)
+### ✅ F3. `prune` never prints the duplicacy diagnostics banner (Low) — RESOLVED (review corrected)
 
-Upstream `duplicacy` logs diagnostics like `Storage set to ...` to **stderr**;
-`_cli.run_cli` captures stdout and stderr separately, and `prune` prints only
-`result.stdout`. This is by design for parsing, but as a user-facing command it
-means `prune` shows no storage context, while `backup`/`run_and_print` (also
-stdout-only, but backed by live streaming) and raw CLI runs do. Harmless today;
-worth a one-line note in the README, or forward captured stderr when the
-command finishes (e.g. print it after parsing) if users ever ask where their
-storage went.
+Upstream `duplicacy` logs diagnostics like `Storage set to ...`; `_cli.run_cli`
+captures stdout and stderr separately, and `prune` printed only `result.stdout`.
+**Correction:** re-checking the upstream source (`duplicacy/duplicacy_log.go`)
+showed this review's stderr claim was wrong — `logf` writes all diagnostics via
+`fmt.Printf` (stdout), and `Storage set to ...` goes through it, so the banner
+lands on **stdout** (confirmed against the installed binary with the streams
+split: stdout carries both the banner and snapshot lines, stderr is empty).
+The finding's real residual gap was therefore narrower than stated: any future
+or version-specific stderr diagnostics were still dropped, while the parse-only
+stdout stream stays clean by design.
+
+Resolved 2026-09-03: `prune` now forwards duplicacy's stderr diagnostics via a
+`_print_duplicacy_stderr` helper (called after both `duplicacy list` calls —
+the interactive picker's `list -all` and the final `list -id`), printing the
+captured stderr to stderr when non-empty; stdout stays parse-only. Guarded by
+a regression test in `TestMain` asserting the captured stderr reaches the
+user while stdout stays empty. Full suite: 178 passed.
 
 ### F4. `load_retention_policy` maps a non-list policy to `TypeError` with a generic message (Low)
 
@@ -196,7 +205,8 @@ timestamps, the retention math shifts. No action needed now; the docstring in
 ## Suggestions (non-blocking, ordered)
 
 1. ✅ F1 and F2 were fixed on 2026-09-03 (see their Resolved notes).
-2. Optionally forward captured stderr in `prune` (F3) or document the omission.
+2. ✅ F3 was fixed on 2026-09-03 (see its Resolved note, which corrects the
+   original stderr claim — upstream logs diagnostics on stdout).
 3. Add `ruff` to the dev dependencies and a minimal config; the codebase is
    already consistent enough that it will pass with few suppressions.
 4. Consider a short "Troubleshooting" section in the README covering the
