@@ -263,7 +263,13 @@ def snapshot_ids(output: str) -> list[str]:
 
 
 def revisions(output: str) -> list[Revision]:
-    """Extract the unique, revision-sorted revisions from ``duplicacy list -id`` output."""
+    """Extract the unique, revision-sorted revisions from ``duplicacy list -id`` output.
+
+    Timestamps are parsed as naive local times, matching the ``duplicacy``
+    output; the retention logic (see ``retention.py``) is built on this
+    assumption — midnight-anchored buckets shift if ``duplicacy`` ever
+    emits timezone-aware or UTC timestamps instead.
+    """
     found: dict[int, Revision] = {}
     for match in REVISION_LINE.finditer(output):
         revision = int(match.group("revision"))

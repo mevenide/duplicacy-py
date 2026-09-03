@@ -174,7 +174,7 @@ safely. Guarded by three regression tests (whitespace-only name, padded
 name, newline in name), each also asserting the config file is not created.
 Full suite: 181 passed.
 
-### F6. `revision` timestamps are parsed as naive local times (Informational)
+### ✅ F6. `revision` timestamps are parsed as naive local times (Informational) — RESOLVED (documented)
 
 `_cli.revisions` parses `duplicacy list` output with
 `datetime.strptime(..., "%Y-%m-%d %H:%M")` — naive local time. The whole
@@ -183,6 +183,15 @@ buckets), and the real CLI output confirmed the format matches. This is only a
 future-portability note: if `duplicacy` ever emits timezone-aware or UTC
 timestamps, the retention math shifts. No action needed now; the docstring in
 `retention.py` already captures the assumption.
+
+Resolved 2026-09-03: documented rather than changed — the review itself said
+no code action was needed, and converting to timezone-aware timestamps would
+break the midnight-anchored retention design it praises. The naive-local-time
+assumption is now stated at the parsing site too: `revisions()`'s docstring
+explains that timestamps are parsed as naive local times matching the
+`duplicacy` output and that the retention logic depends on this (buckets
+would shift if upstream ever emits timezone-aware or UTC timestamps).
+Behavior is unchanged; the full suite still passes (181 passed).
 
 ### F7. Type-checking imports and minor polish (Informational)
 
@@ -224,3 +233,7 @@ timestamps, the retention math shifts. No action needed now; the docstring in
    original stderr claim — upstream logs diagnostics on stdout).
 3. ✅ F4 was fixed on 2026-09-03 (see its Resolved note).
 4. ✅ F5 was fixed on 2026-09-03 (see its Resolved note).
+5. ✅ F6 was addressed on 2026-09-03 by documenting the naive-local-time
+   assumption at the parsing site (see its Resolved note; the review itself
+   said no code change was needed).
+6. F7: see its Resolved note (ruff/pyright added; annotations tightened).
