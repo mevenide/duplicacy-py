@@ -228,6 +228,73 @@ class TestSelectRevisions:
         assert kept == {1, 3}
         assert pruned == {2}
 
+    def test_boundary_entry_satisfies_the_end_boundary_tick(self) -> None:
+        # With now at midnight (2026-09-01 00:00) the age=1d boundary is
+        # 08-31 00:00 and the unbounded-past bucket's hourly grid ticks at
+        # 08-31 00:00, 08-30 23:00 and 08-30 22:00. Revision 2 sits exactly
+        # on the boundary in the newest bucket, so it satisfies the 08-31
+        # 00:00 tick and revision 1 (08-30 23:45) is not needed; revision 3
+        # (08-30 22:50) wins the 23:00 tick.
+        midnight = datetime(2026, 9, 1)
+        revisions = [
+            _revision(1, datetime(2026, 8, 30, 23, 45)),
+            _revision(2, datetime(2026, 8, 31, 0, 0)),
+            _revision(3, datetime(2026, 8, 30, 22, 50)),
+        ]
+        kept, pruned = select_revisions(revisions, [{"age": "1d", "frequency": "1h"}], midnight)
+        assert kept == {2, 3}
+        assert pruned == {1}
+
+    def test_equidistant_boundary_entry_satisfies_the_end_boundary_tick(self) -> None:
+        # The newest bucket's earliest kept revision (08-31 00:15) is as far
+        # from the 08-31 00:00 boundary tick as revision 1 (08-30 23:45), so
+        # it satisfies the tick (the latest revision wins ties) and revision
+        # 1 is pruned; revision 3 wins the 23:00 tick.
+        midnight = datetime(2026, 9, 1)
+        revisions = [
+            _revision(1, datetime(2026, 8, 30, 23, 45)),
+            _revision(2, datetime(2026, 8, 31, 0, 15)),
+            _revision(3, datetime(2026, 8, 30, 22, 50)),
+        ]
+        kept, pruned = select_revisions(revisions, [{"age": "1d", "frequency": "1h"}], midnight)
+        assert kept == {2, 3}
+        assert pruned == {1}
+
+    def test_boundary_entry_satisfies_the_tick_for_a_thinned_later_bucket(self) -> None:
+        # With ages 1d and 2d the boundaries are 08-31 and 08-30 00:00. The
+        # 1d..2d bucket's hourly grid ticks down to its start, so its 08-30
+        # 00:00 tick keeps revision 3 (exactly on it); that kept entry
+        # satisfies the older bucket's 08-30 00:00 boundary tick, so
+        # revision 1 (08-29 23:45) is pruned and revision 2 (08-29 22:50)
+        # wins the 23:00 tick.
+        midnight = datetime(2026, 9, 1)
+        revisions = [
+            _revision(1, datetime(2026, 8, 29, 23, 45)),
+            _revision(2, datetime(2026, 8, 29, 22, 50)),
+            _revision(3, datetime(2026, 8, 30, 0, 0)),
+            _revision(4, datetime(2026, 8, 30, 23, 0)),
+        ]
+        kept, pruned = select_revisions(
+            revisions,
+            [{"age": "1d", "frequency": "1h"}, {"age": "2d", "frequency": "1h"}],
+            midnight,
+        )
+        assert kept == {2, 3, 4}
+        assert pruned == {1}
+
+    def test_end_boundary_tick_keeps_its_closest_revision_when_the_later_kept_is_farther(self) -> None:
+        # The newest bucket's only revision (08-31 12:00) is 12h from the
+        # 08-31 00:00 boundary tick while revision 1 (08-30 23:45) is 15m,
+        # so the tick still keeps revision 1.
+        midnight = datetime(2026, 9, 1)
+        revisions = [
+            _revision(1, datetime(2026, 8, 30, 23, 45)),
+            _revision(2, datetime(2026, 8, 31, 12, 0)),
+        ]
+        kept, pruned = select_revisions(revisions, [{"age": "1d", "frequency": "1h"}], midnight)
+        assert kept == {1, 2}
+        assert pruned == set()
+
     def test_rejects_duplicate_ages(self) -> None:
         with pytest.raises(ValueError) as excinfo:
             select_revisions(

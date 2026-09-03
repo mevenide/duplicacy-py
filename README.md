@@ -116,9 +116,14 @@ bucket's end boundary: ideal timestamps are laid out one frequency apart,
 anchored at the bucket's end (midnight) and stepping backwards down to the
 bucket's start (for the unbounded-past bucket, down to the first tick at or
 below the oldest revision), and the revision closest to each timestamp is
-kept — the
-latest revision wins ties — while the rest are pruned. Revisions newer than
-the smallest age (the newest bucket) are always kept, matching the Duplicacy
+kept — the latest revision wins ties — while the rest are pruned. The
+end-boundary tick needs no entry of its own when the next later bucket
+keeps a revision within half a frequency of the boundary — the newest
+bucket keeps everything it holds, and a thinned bucket keeps its
+start-boundary revision — so that revision serves the slot and the
+earlier bucket's entry nearest the boundary (e.g. 23:45 against a later
+00:00 entry on an hourly grid) is pruned. Revisions newer than the
+smallest age (the newest bucket) are always kept, matching the Duplicacy
 CLI's prune behaviour. With no retention policy everything is kept. Because
 the supported frequencies (15m/30m, whole hours dividing 24, and multiples of
 24 hours) all divide or align with whole days, every tick falls at the same

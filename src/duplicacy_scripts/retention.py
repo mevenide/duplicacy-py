@@ -17,10 +17,16 @@ ideal timestamps are laid out on a grid anchored at the bucket's end
 boundary, spaced one frequency apart and stopping at the bucket's start
 (for the unbounded-past bucket, at the first tick at or below the oldest
 revision), and the revision closest to each grid timestamp is kept — the
-latest revision wins ties — while the rest are pruned. The newest bucket
-(revisions newer than the smallest age) is always kept, matching the
-Duplicacy CLI's prune behaviour. With midnight anchoring, day-and-larger
-frequencies tick exactly at midnight.
+latest revision wins ties — while the rest are pruned. The end-boundary
+tick needs no entry of its own when the next later bucket keeps a
+revision within half a frequency of the boundary — the newest bucket
+keeps everything it holds, and a thinned bucket keeps its start-boundary
+revision — so that revision serves the slot and the earlier bucket's
+entry nearest the boundary (e.g. 23:45 against a later 00:00 entry on an
+hourly grid) is pruned. The newest bucket (revisions newer than the
+smallest age) is always kept, matching the Duplicacy CLI's prune
+behaviour. With midnight anchoring, day-and-larger frequencies tick
+exactly at midnight.
 """
 
 from __future__ import annotations
@@ -157,8 +163,13 @@ def select_revisions(
     backwards down to the bucket's start (or, for the unbounded-past bucket,
     down to the first tick at or below the oldest revision, so the deepest
     history always keeps a revision), and the revision closest to each
-    timestamp is kept — the latest revision wins ties. Revisions newer than
-    the smallest age — the newest bucket — are always kept, matching the
+    timestamp is kept — the latest revision wins ties. The end-boundary tick
+    is skipped when the next later bucket already keeps a revision within
+    half a frequency of the boundary: that revision serves the slot, so the
+    earlier bucket's entry nearest the boundary (e.g. 23:45 when the later
+    bucket keeps one at exactly 00:00 for an hourly frequency) is pruned.
+    Buckets are therefore thinned from the newest backwards. Revisions newer
+    than the smallest age — the newest bucket — are always kept, matching the
     Duplicacy CLI's prune behaviour. An empty policy keeps everything. Pass
     midnight (the start of today) as ``now`` to anchor the buckets and grid
     ticks to midnight.
@@ -178,9 +189,22 @@ def select_revisions(
     if not policy_buckets:
         return {revision.revision for revision in revisions}, set()
     kept: set[int] = set()
+    # Revisions the bucket after each boundary keeps, keyed by the boundary
+    # timestamp: the newest bucket keeps every revision it holds, and each
+    # thinned bucket records the revision kept for its tick timestamps. A
+    # thinned bucket consults them at its end boundary to avoid keeping a
+    # second entry for a slot the later bucket already serves.
+    kept_after_boundary: dict[datetime, list[Revision]] = {}
+    newest_bucket = policy_buckets[-1]
+    for revision in revisions:
+        if newest_bucket.contains(revision.created_at):
+            kept.add(revision.revision)
+            kept_after_boundary.setdefault(newest_bucket.start, []).append(revision)
     # Bucket i ends at now - ages_desc[i], so pair the chronological buckets
-    # with the entries sorted by descending age.
-    for bucket, age in zip(policy_buckets[:-1], sorted(frequencies, reverse=True)):
+    # with the entries sorted by descending age; thin from the newest bucket
+    # backwards so each bucket sees what the later bucket keeps at their
+    # shared boundary before it is thinned itself.
+    for bucket, age in reversed(list(zip(policy_buckets[:-1], sorted(frequencies, reverse=True)))):
         in_bucket = [revision for revision in revisions if bucket.contains(revision.created_at)]
         if not in_bucket:
             continue
@@ -188,12 +212,34 @@ def select_revisions(
         times = [revision.created_at for revision in in_bucket]
         floor = bucket.start if bucket.start is not None else in_bucket[0].created_at
         for timestamp in _grid_timestamps(bucket, frequencies[age], floor):
-            kept.add(_closest_revision(in_bucket, times, timestamp).revision)
-    for revision in revisions:
-        if policy_buckets[-1].contains(revision.created_at):
-            kept.add(revision.revision)
+            tick_revision = _closest_revision(in_bucket, times, timestamp)
+            if timestamp == bucket.end and _boundary_kept_satisfies(
+                kept_after_boundary.get(timestamp), timestamp, frequencies[age]
+            ):
+                continue
+            kept.add(tick_revision.revision)
+            kept_after_boundary.setdefault(timestamp, []).append(tick_revision)
     pruned = {revision.revision for revision in revisions} - kept
     return kept, pruned
+
+
+def _boundary_kept_satisfies(
+    kept: list[Revision] | None,
+    timestamp: datetime,
+    frequency: timedelta,
+) -> bool:
+    """Return whether the later bucket's kept revisions serve this end-boundary tick.
+
+    ``kept`` holds the revisions the bucket after the boundary keeps (the
+    newest bucket keeps everything it holds; a thinned bucket keeps the
+    revision closest to its start-boundary tick). When one of them lies
+    within half a ``frequency`` of the boundary ``timestamp``, it satisfies
+    the tick's frequency slot and the earlier bucket needs no near-boundary
+    entry of its own.
+    """
+    if not kept:
+        return False
+    return any(abs(revision.created_at - timestamp) <= frequency / 2 for revision in kept)
 
 
 def _closest_revision(
