@@ -17,8 +17,9 @@ are in `src/duplicacy_scripts/`, with tests in `tests/`.
   contains `DUPLICACY_EXECUTABLE=${HOME}/.local/bin/duplicacy_linux_x64_3.2.5`.
 - Real test storage for end-to-end runs: `${HOME}/tmp/duplicacy-savegames.storage/`,
   configured in `~/.config/duplicacy-py/repo/.duplicacy/preferences` (snapshot
-  id `duplicacy-py-dummy`). `uv run duplicacy-py prune --snapshot-id
-  Jenna3_user_savegames` from the repo root exercises the full path for real.
+  id `duplicacy-py-dummy`). `uv run duplicacy-py prune --dry-run --snapshot-id
+  Jenna3_user_savegames` from the repo root exercises the full path for real
+  (prune does nothing without `--dry-run`).
 - If a stub is still needed, create a shell script that echoes plausible output
   and point the script at it via `DUPLICACY_EXECUTABLE` or a `.env` file (the
   stub receives the CLI args as `$*`; its stdout is what the script prints).

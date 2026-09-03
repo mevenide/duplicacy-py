@@ -58,6 +58,12 @@ class TestParseArgs:
         args = duplicacy.parse_args(["prune", "--snapshot-id", "vm"])
         assert args.command == "prune"
         assert args.snapshot_id == "vm"
+        assert args.dry_run is False
+
+    def test_parses_prune_dry_run(self) -> None:
+        args = duplicacy.parse_args(["prune", "--dry-run", "--snapshot-id", "vm"])
+        assert args.command == "prune"
+        assert args.dry_run is True
 
     def test_parses_config_var(self) -> None:
         args = duplicacy.parse_args(["config", "var", "--config", "/tmp/settings", "duplicacy=/opt/duplicacy"])
@@ -200,7 +206,7 @@ class TestMain:
                 "/tmp/settings/repo",
             ),
             (
-                ["prune", "--config", "/tmp/settings", "--snapshot-id", "vm"],
+                ["prune", "--dry-run", "--config", "/tmp/settings", "--snapshot-id", "vm"],
                 ["list", "-id", "vm"],
                 "Snapshot vm revision 5 created at 2026-01-01 10:00\n",
                 "5 created at 2026-01-01 10:00\n",
@@ -307,7 +313,7 @@ class TestMain:
         monkeypatch.setattr(prune_command.sys.stdin, "isatty", lambda: True)
         monkeypatch.setattr(prune_command, "select_option", lambda message, choices: "vm")
 
-        assert duplicacy.main(["prune", "--config", str(tmp_path)]) == 0
+        assert duplicacy.main(["prune", "--dry-run", "--config", str(tmp_path)]) == 0
         assert captured["args"] == [fake_executable, "list", "-id", "vm"]
         assert captured["cwd"] == tmp_path / "repo"
         output = capsys.readouterr()
@@ -334,7 +340,7 @@ class TestMain:
 
         monkeypatch.setattr(_cli, "run_cli", fake_run_cli)
 
-        assert duplicacy.main(["prune", "--config", str(tmp_path), "--snapshot-id", "vm"]) == 0
+        assert duplicacy.main(["prune", "--dry-run", "--config", str(tmp_path), "--snapshot-id", "vm"]) == 0
         captured = capsys.readouterr()
         assert captured.out == ""
         # The forwarded diagnostics follow the informational lines (the
@@ -369,7 +375,7 @@ class TestMain:
         monkeypatch.setattr(prune_command.sys.stdin, "isatty", lambda: True)
         monkeypatch.setattr(prune_command, "select_option", lambda message, choices: None)
 
-        assert duplicacy.main(["prune", "--config", str(tmp_path)]) == 1
+        assert duplicacy.main(["prune", "--dry-run", "--config", str(tmp_path)]) == 1
         error = capsys.readouterr().err
         # The policy and anchor are printed before the picker is offered,
         # latest entry (7d) first and earliest (1month) last, each with
@@ -402,7 +408,7 @@ class TestMain:
         # 2026-08-25 00:00 and there are no revisions to fill either bucket.
         monkeypatch.setattr(prune_command, "datetime", FixedDateTime)
 
-        assert duplicacy.main(["prune", "--config", str(tmp_path), "--snapshot-id", "db"]) == 0
+        assert duplicacy.main(["prune", "--dry-run", "--config", str(tmp_path), "--snapshot-id", "db"]) == 0
         output = capsys.readouterr()
         assert output.out == (
             "Bucket 0: [the beginning, 2026-08-25 00:00)\n"
@@ -414,6 +420,25 @@ class TestMain:
             "  0: age=1w frequency=1d\n"
             "Snapshot id: db\n"
         )
+
+    def test_prune_without_dry_run_does_nothing(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        fake_executable: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        (tmp_path / "repo").mkdir()
+
+        def fail_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> _cli.CliResult:
+            raise AssertionError("prune should not run the duplicacy CLI without --dry-run")
+
+        monkeypatch.setattr(_cli, "run_cli", fail_run_cli)
+
+        assert duplicacy.main(["prune", "--config", str(tmp_path), "--snapshot-id", "vm"]) == 0
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert captured.err == ""
 
     def test_prune_picker_cancelled_returns_one(
         self,
@@ -434,7 +459,7 @@ class TestMain:
         monkeypatch.setattr(prune_command.sys.stdin, "isatty", lambda: True)
         monkeypatch.setattr(prune_command, "select_option", lambda message, choices: None)
 
-        assert duplicacy.main(["prune", "--config", str(tmp_path)]) == 1
+        assert duplicacy.main(["prune", "--dry-run", "--config", str(tmp_path)]) == 1
         assert capsys.readouterr().out == ""
 
     def test_prune_picker_requires_interactive_stdin(
@@ -455,7 +480,7 @@ class TestMain:
         monkeypatch.setattr(_cli, "run_cli", fake_run_cli)
         monkeypatch.setattr(prune_command.sys.stdin, "isatty", lambda: False)
 
-        assert duplicacy.main(["prune", "--config", str(tmp_path)]) == 1
+        assert duplicacy.main(["prune", "--dry-run", "--config", str(tmp_path)]) == 1
         error = capsys.readouterr().err
         assert "--snapshot-id is required when stdin is not interactive" in error
         assert "db" in error and "vm" in error
@@ -475,7 +500,7 @@ class TestMain:
         monkeypatch.setattr(_cli, "run_cli", fake_run_cli)
         monkeypatch.setattr(prune_command.sys.stdin, "isatty", lambda: True)
 
-        assert duplicacy.main(["prune", "--config", str(tmp_path)]) == 1
+        assert duplicacy.main(["prune", "--dry-run", "--config", str(tmp_path)]) == 1
         assert "No snapshots found in the repository" in capsys.readouterr().err
 
     def test_prune_classifies_revisions_into_retention_buckets(
@@ -502,7 +527,7 @@ class TestMain:
         monkeypatch.setattr(_cli, "run_cli", fake_run_cli)
         monkeypatch.setattr(prune_command, "datetime", FixedDateTime)
 
-        assert duplicacy.main(["prune", "--config", str(tmp_path), "--snapshot-id", "vm"]) == 0
+        assert duplicacy.main(["prune", "--dry-run", "--config", str(tmp_path), "--snapshot-id", "vm"]) == 0
         assert capsys.readouterr().out == (
             "Bucket 0: [the beginning, 2026-08-25 00:00)\n"
             "1 created at 2026-08-20 10:00 kept\n"
@@ -532,7 +557,7 @@ class TestMain:
         monkeypatch.setattr(_cli, "run_cli", fake_run_cli)
         monkeypatch.setattr(prune_command, "datetime", FixedDateTime)
 
-        assert duplicacy.main(["prune", "--config", str(tmp_path), "--snapshot-id", "vm"]) == 0
+        assert duplicacy.main(["prune", "--dry-run", "--config", str(tmp_path), "--snapshot-id", "vm"]) == 0
         assert capsys.readouterr().out == (
             "Bucket 0: [the beginning, 2026-08-31 00:00)\n"
             "5 created at 2026-08-01 10:00 kept\n"
@@ -568,7 +593,7 @@ class TestMain:
         monkeypatch.setattr(_cli, "run_cli", fake_run_cli)
         monkeypatch.setattr(prune_command, "datetime", FixedDateTime)
 
-        assert duplicacy.main(["prune", "--config", str(tmp_path), "--snapshot-id", "vm"]) == 0
+        assert duplicacy.main(["prune", "--dry-run", "--config", str(tmp_path), "--snapshot-id", "vm"]) == 0
         assert capsys.readouterr().out == (
             "Bucket 0: [the beginning, 2026-08-25 00:00)\n"
             "1 created at 2026-08-24 10:00 kept\n"
@@ -603,7 +628,7 @@ class TestMain:
         # (08-24 00:00), so the 7d boundary falls at 08-17 00:00 and all
         # 08-24 revisions land in the always-kept newest bucket — even
         # revision 2, which the today anchor would prune.
-        assert duplicacy.main(["prune", "--config", str(tmp_path), "--snapshot-id", "vm"]) == 0
+        assert duplicacy.main(["prune", "--dry-run", "--config", str(tmp_path), "--snapshot-id", "vm"]) == 0
         assert capsys.readouterr().out == (
             "Bucket 0: [the beginning, 2026-08-17 00:00)\n"
             "Bucket 1: [2026-08-17 00:00, now)\n"
@@ -627,7 +652,7 @@ class TestMain:
 
         monkeypatch.setattr(_cli, "run_cli", fail_run_cli)
 
-        assert duplicacy.main(["prune", "--config", str(tmp_path), "--snapshot-id", "vm"]) == 1
+        assert duplicacy.main(["prune", "--dry-run", "--config", str(tmp_path), "--snapshot-id", "vm"]) == 1
         assert "retentionAnchor must be" in capsys.readouterr().err
 
     def test_prune_returns_one_on_invalid_retention_age(
@@ -645,7 +670,7 @@ class TestMain:
 
         monkeypatch.setattr(_cli, "run_cli", fail_run_cli)
 
-        assert duplicacy.main(["prune", "--config", str(tmp_path), "--snapshot-id", "vm"]) == 1
+        assert duplicacy.main(["prune", "--dry-run", "--config", str(tmp_path), "--snapshot-id", "vm"]) == 1
         assert "invalid duration" in capsys.readouterr().err
 
     def test_prune_returns_one_on_invalid_retention_frequency(
@@ -663,7 +688,7 @@ class TestMain:
 
         monkeypatch.setattr(_cli, "run_cli", fail_run_cli)
 
-        assert duplicacy.main(["prune", "--config", str(tmp_path), "--snapshot-id", "vm"]) == 1
+        assert duplicacy.main(["prune", "--dry-run", "--config", str(tmp_path), "--snapshot-id", "vm"]) == 1
         assert "invalid duration" in capsys.readouterr().err
 
     def test_prune_returns_one_on_duplicate_retention_age(
@@ -683,7 +708,7 @@ class TestMain:
 
         monkeypatch.setattr(_cli, "run_cli", fail_run_cli)
 
-        assert duplicacy.main(["prune", "--config", str(tmp_path), "--snapshot-id", "vm"]) == 1
+        assert duplicacy.main(["prune", "--dry-run", "--config", str(tmp_path), "--snapshot-id", "vm"]) == 1
         assert "ages must be unique" in capsys.readouterr().err
 
     def test_lists_snapshot_ids(

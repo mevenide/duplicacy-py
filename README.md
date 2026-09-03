@@ -13,7 +13,7 @@ Run the installed CLI with a command:
 ```sh
 uv run duplicacy-py backup
 uv run duplicacy-py list
-uv run duplicacy-py prune --snapshot-id <snapshot id>
+uv run duplicacy-py prune --dry-run --snapshot-id <snapshot id>
 uv run duplicacy-py config init --storage <storage url>
 uv run duplicacy-py config var duplicacy=/path/to/duplicacy
 uv run duplicacy-py config retention-policy add --age 7d --frequency 1h
@@ -25,8 +25,10 @@ The available commands are:
   configuration directory.
 - `list` prints the snapshot ids found in the repository (one per line,
   sorted, duplicates removed).
-- `prune [--snapshot-id <snapshot id>]` lists the revisions for the supplied
-  snapshot id, parsed from the `duplicacy list` output, running in the `repo`
+- `prune [--dry-run] [--snapshot-id <snapshot id>]` prints what the prune
+  command would do if it ran; without `--dry-run` it does nothing. With
+  `--dry-run`, it lists the revisions for the supplied snapshot id, parsed
+  from the `duplicacy list` output, running in the `repo`
   subdirectory of the configuration directory. When the `retentionPolicy`
   configuration key contains ages, the revisions are grouped under retention
   buckets (see below): one chronological header per bucket,

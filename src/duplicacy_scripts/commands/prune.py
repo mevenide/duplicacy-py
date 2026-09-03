@@ -4,9 +4,11 @@ and frequency grid ticks are aligned to midnight: the reference time is
 midnight of the day of the snapshot's latest revision (the default), or
 midnight of the current day with ``retentionAnchor: today``.
 
-The retention policy and anchor are printed to stderr for the user's
-information before the snapshot id is chosen, the policy sorted latest
-to earliest, keeping stdout parse-only revision output."""
+The listing is the prune's dry run: it is printed only with ``--dry-run``;
+without the flag the command does nothing. The retention policy and anchor
+are printed to stderr for the user's information before the snapshot id is
+chosen, the policy sorted latest to earliest, keeping stdout parse-only
+revision output."""
 
 from __future__ import annotations
 
@@ -108,17 +110,26 @@ def _print_bucketed_revisions(
 
 def add_parser(subparsers: argparse._SubParsersAction) -> None:
     """Declare the ``prune`` subcommand and its arguments."""
-    parser = subparsers.add_parser("prune", help="list revisions for a snapshot id")
+    parser = subparsers.add_parser("prune", help="print what the prune command would do if it ran")
     _cli.add_config_argument(parser)
     parser.add_argument(
         "--snapshot-id",
         default=None,
         help="snapshot id to list revisions for (interactive picker when omitted)",
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="print the prune preview (without it, prune does nothing)",
+    )
 
 
 def run(args: argparse.Namespace) -> int:
-    """List revisions for the chosen snapshot id (interactive picker when omitted)."""
+    """Print what the prune would do for the chosen snapshot id; do nothing without ``--dry-run``."""
+    if not args.dry_run:
+        # The listing is what the prune would do if it ran; without the
+        # flag the command does nothing.
+        return 0
     executable, repo = _cli.prepare_repo(args.config)
     # load_retention_policy validates the whole policy (unparsable,
     # non-positive, or duplicate ages; invalid frequencies), and
