@@ -11,10 +11,12 @@ import pytest
 
 from duplicacy_scripts._cli import (
     CliError,
+    RetentionAnchor,
     default_config_dir,
     init_config,
     load_config,
     load_env,
+    load_retention_anchor,
     load_retention_policy,
     resolve_executable,
     run_cli,
@@ -145,6 +147,36 @@ class TestRetentionPolicy:
             save_retention_policy(entries, tmp_path)
         assert "unsupported retention policy frequency" in str(excinfo.value)
         assert not (tmp_path / "config.yaml").exists()
+
+
+class TestRetentionAnchor:
+    def test_missing_file_yields_latest_revision_default(self, tmp_path: Path) -> None:
+        assert load_retention_anchor(tmp_path) is RetentionAnchor.LATEST_REVISION
+
+    def test_missing_key_yields_latest_revision_default(self, tmp_path: Path) -> None:
+        save_config("duplicacy", "/opt/tools/duplicacy", tmp_path)
+        assert load_retention_anchor(tmp_path) is RetentionAnchor.LATEST_REVISION
+
+    def test_round_trips_today(self, tmp_path: Path) -> None:
+        save_config("retentionAnchor", "today", tmp_path)
+        assert load_retention_anchor(tmp_path) is RetentionAnchor.TODAY
+
+    def test_rejects_unknown_value(self, tmp_path: Path) -> None:
+        (tmp_path / "config.yaml").write_text("retentionAnchor: noon\n")
+        with pytest.raises(ValueError) as excinfo:
+            load_retention_anchor(tmp_path)
+        # The message names the offending configuration file and the
+        # only allowed values.
+        assert str(tmp_path / "config.yaml") in str(excinfo.value)
+        assert "must be 'latestRevision', 'today'" in str(excinfo.value)
+
+    def test_rejects_unhashable_value(self, tmp_path: Path) -> None:
+        # A YAML list is unhashable; the enum lookup rejects it just
+        # like an unknown string instead of raising a raw TypeError.
+        (tmp_path / "config.yaml").write_text("retentionAnchor: [today]\n")
+        with pytest.raises(ValueError) as excinfo:
+            load_retention_anchor(tmp_path)
+        assert "must be 'latestRevision', 'today' (got ['today'])" in str(excinfo.value)
 
 
 class TestResolveExecutable:

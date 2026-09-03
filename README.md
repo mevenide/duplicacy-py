@@ -38,7 +38,8 @@ The available commands are:
   print only their header. Without a retention policy, the revisions are
   printed as before (one per line, sorted by revision number). An invalid
   retention policy (unparsable or non-positive age, duplicate ages, or an
-  unparsable, non-positive, or unsupported frequency) exits with an error
+  unparsable, non-positive, or unsupported frequency) or an unknown
+  `retentionAnchor` value (see below) exits with an error
   before the duplicacy CLI runs. When
   `--snapshot-id` is omitted and stdin is
   interactive, an up/down arrow picker (with Enter to select) offers the
@@ -49,7 +50,9 @@ The available commands are:
   configuration directory (snapshot id: `duplicacy-py-dummy`). An existing
   configuration file is reported and left untouched, and an already
   initialized `repo` directory is left untouched as well.
-- `config var NAME=VALUE` saves a named configuration variable for future commands.
+- `config var NAME=VALUE` saves a named configuration variable for future
+  commands (for example `retentionAnchor=today`; see below for the
+  recognised variables).
 - `config retention-policy add --age <duration> --frequency <duration>` appends
   an entry to the retention policy, a list of `{age, frequency}` entries saved
   under the `retentionPolicy` key in `config.yaml`. Both durations are parsed
@@ -97,8 +100,26 @@ through `src/duplicacy_scripts/duration.py` (`parse_duration` returns seconds,
 `DurationError` signals invalid input). Suffixes are case-insensitive, so `1M`
 parses as one minute, not one month; spell months as `1month`.
 
+The optional `retentionAnchor` key selects the midnight the retention buckets
+are computed from; only these two values are allowed (anything else is
+rejected when `prune` loads the configuration, before the duplicacy CLI
+runs):
+
+- `latestRevision` (the default when the key is absent): midnight of the day
+  of the snapshot's latest revision. Buckets and frequency grid ticks are
+  anchored to that day, so an inactive snapshot (no new backups since some
+  past date) is measured from the end of its actual backup history rather
+  than from today, and revisions are not automatically aged out merely
+  because time passed without new backups.
+- `today`: midnight of the current day, the previous behaviour.
+
+For example, `uv run duplicacy-py config var retentionAnchor=today` switches
+back to the previous behaviour; with no revisions to anchor on (or with the
+`today` anchor), midnight of the current day is used.
+
 The `prune` command uses the retention policy ages to classify revisions into
-buckets relative to midnight (the start of today,
+buckets relative to midnight (of the anchor day — by default the day of the
+snapshot's latest revision, or today with `retentionAnchor: today`;
 `src/duplicacy_scripts/retention.py`), so bucket boundaries and frequency
 timestamps fall exactly on calendar days and the results do not depend on the
 time of day the command runs. The ages divide time into `n + 1` chronological

@@ -9,8 +9,10 @@ reference point (now) into chronological buckets, one more than the number of
 ages: everything older than the oldest age, one bucket per gap between
 consecutive ages, and everything newer than the newest age. All datetimes
 are naive local times, matching the ``duplicacy list`` output. Callers pass
-midnight (the start of today) as ``now`` so every boundary and tick is
-aligned to midnight and results do not depend on the time of day.
+midnight (the start of today, or of the day of the snapshot's latest
+revision — see the ``retentionAnchor`` configuration option) as ``now`` so
+every boundary and tick is aligned to midnight and results do not depend on
+the time of day.
 
 Each bucket older than the newest age is thinned by its entry's frequency:
 ideal timestamps are laid out on a grid anchored at the bucket's end
@@ -126,7 +128,8 @@ def buckets(retention_policy: list[dict[str, str]], now: datetime) -> list[Bucke
     Ages are duration strings measured backwards from ``now``; the policy is
     validated first (see :func:`validate_retention_policy`), so ages must be
     unique and frequencies must be from the supported set. Pass midnight (the
-    start of today) as ``now`` to align every
+    start of today, or of the day of the snapshot's latest revision — see the
+    ``retentionAnchor`` configuration option) as ``now`` to align every
     boundary to midnight. Buckets are chronological (oldest first): the
     earliest covers everything older than the oldest age, the latest
     everything newer than the newest age, and each remaining bucket spans
@@ -171,8 +174,9 @@ def select_revisions(
     Buckets are therefore thinned from the newest backwards. Revisions newer
     than the smallest age — the newest bucket — are always kept, matching the
     Duplicacy CLI's prune behaviour. An empty policy keeps everything. Pass
-    midnight (the start of today) as ``now`` to anchor the buckets and grid
-    ticks to midnight.
+    midnight (the start of today, or of the day of the snapshot's latest
+    revision — see the ``retentionAnchor`` configuration option) as ``now``
+    to anchor the buckets and grid ticks to midnight.
 
     The policy is validated first (see :func:`validate_retention_policy`), so
     ages must be unique and every age and frequency positive and parsable.

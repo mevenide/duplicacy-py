@@ -1,7 +1,8 @@
 """The ``prune`` command: list revisions for a snapshot id, classified into
 retention policy buckets and marked kept or pruned. All bucket boundaries
-and frequency grid ticks are aligned to midnight: the reference time is the
-start of the current day, not the moment the command runs."""
+and frequency grid ticks are aligned to midnight: the reference time is
+midnight of the day of the snapshot's latest revision (the default), or
+midnight of the current day with ``retentionAnchor: today``."""
 
 from __future__ import annotations
 
@@ -95,22 +96,30 @@ def run(args: argparse.Namespace) -> int:
         snapshot_id = _select_snapshot_id(executable, repo)
         if snapshot_id is None:
             return 1
-    # Anchor at midnight (the start of today) so bucket boundaries and
-    # frequency grid ticks fall exactly on calendar days regardless of
-    # when the command runs.
-    now = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     # load_retention_policy validates the whole policy (unparsable,
-    # non-positive, or duplicate ages; invalid frequencies), so an invalid
-    # policy exits with an error before the duplicacy CLI runs.
+    # non-positive, or duplicate ages; invalid frequencies), and
+    # load_retention_anchor rejects unknown anchors, so an invalid
+    # configuration exits with an error before the duplicacy CLI runs.
     try:
         policy = _cli.load_retention_policy(args.config)
-        policy_buckets = buckets(policy, now)
+        anchor = _cli.load_retention_anchor(args.config)
     except (TypeError, ValueError) as exc:
         print(exc, file=sys.stderr)
         return 1
     result = _cli.run_cli([executable, "list", "-id", snapshot_id], cwd=repo)
     _print_duplicacy_stderr(result.stderr)
     revisions = _cli.revisions(result.stdout)
+    # Anchor at midnight so bucket boundaries and frequency grid ticks
+    # fall exactly on calendar days: by default midnight of the day of
+    # the latest revision (revisions come sorted by revision number, and
+    # duplicacy assigns them monotonically), midnight of the current day
+    # with the ``today`` anchor. With no revisions there is no latest
+    # revision to anchor on, so today's midnight is used.
+    if anchor is _cli.RetentionAnchor.TODAY or not revisions:
+        now = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    else:
+        now = revisions[-1].created_at.replace(hour=0, minute=0, second=0, microsecond=0)
+    policy_buckets = buckets(policy, now)
     if not policy_buckets:
         for revision in revisions:
             print(f"{revision.revision} created at {revision.created_at:%Y-%m-%d %H:%M}")

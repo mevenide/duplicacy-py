@@ -4,6 +4,7 @@ the per-command modules in ``duplicacy_scripts.commands``."""
 from __future__ import annotations
 
 import argparse
+import enum
 import os
 import re
 import shutil
@@ -135,6 +136,42 @@ def load_retention_policy(config_dir: str | os.PathLike[str] | None = None) -> l
     entries = [{"age": str(entry["age"]), "frequency": str(entry["frequency"])} for entry in policy]
     validate_retention_policy(entries)
     return entries
+
+
+RETENTION_ANCHOR_KEY = "retentionAnchor"
+
+
+class RetentionAnchor(enum.StrEnum):
+    """The midnight the retention buckets are computed from.
+
+    ``LATEST_REVISION`` (the default) anchors at midnight of the day of
+    the snapshot's latest revision and ``TODAY`` at midnight of the
+    current day; the values are the ``retentionAnchor`` strings accepted
+    in the configuration file.
+    """
+
+    LATEST_REVISION = "latestRevision"
+    TODAY = "today"
+
+
+def load_retention_anchor(config_dir: str | os.PathLike[str] | None = None) -> RetentionAnchor:
+    """Return the :class:`RetentionAnchor` from the configuration file.
+
+    The anchor picks the midnight the retention buckets are computed
+    from (see :class:`RetentionAnchor`): a missing key yields
+    ``LATEST_REVISION``; any other value raises ``ValueError`` naming
+    the configuration file and the allowed values.
+    """
+    value = load_config(config_dir).get(RETENTION_ANCHOR_KEY, RetentionAnchor.LATEST_REVISION)
+    try:
+        return RetentionAnchor(value)
+    except (TypeError, ValueError):
+        # TypeError covers unhashable YAML values (e.g. a list), which
+        # the enum lookup rejects just like an unknown string.
+        allowed = ", ".join(repr(anchor.value) for anchor in RetentionAnchor)
+        raise ValueError(
+            f"{config_file(config_dir)}: {RETENTION_ANCHOR_KEY} must be {allowed} (got {value!r})"
+        ) from None
 
 
 def save_retention_policy(
@@ -305,6 +342,8 @@ def run_and_print(args: Sequence[str], repo: str | os.PathLike[str]) -> int:
 __all__ = [
     "CliError",
     "CliResult",
+    "RETENTION_ANCHOR_KEY",
+    "RetentionAnchor",
     "REVISION_LINE",
     "REVISION_TIME_FORMAT",
     "Revision",
@@ -315,6 +354,7 @@ __all__ = [
     "init_config",
     "load_config",
     "load_env",
+    "load_retention_anchor",
     "load_retention_policy",
     "prepare_repo",
     "repo_dir",
