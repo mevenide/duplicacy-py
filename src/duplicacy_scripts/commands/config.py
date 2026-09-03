@@ -56,7 +56,10 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
     retention_add.add_argument(
         "--frequency",
         required=True,
-        help="minimum interval between kept revisions (duration, e.g. 1h, 5m, 1d, 1w, 1month)",
+        help=(
+            "minimum interval between kept revisions (15m, 30m, whole hours dividing 24: "
+            "1h, 2h, 3h, 4h, 6h, 8h, 12h, or multiples of 24h such as 1d, 1w, 1month)"
+        ),
     )
 
     retention_list = retention_commands.add_parser(
@@ -137,9 +140,15 @@ def _run_retention_add(args: argparse.Namespace) -> int:
         return 1
     try:
         entries = _cli.load_retention_policy(args.config)
-        entries.append({"age": args.age, "frequency": args.frequency})
+    except (OSError, TypeError, yaml.YAMLError, ValueError) as exc:
+        print(f"Could not read configuration: {exc}", file=sys.stderr)
+        return 1
+    entries.append({"age": args.age, "frequency": args.frequency})
+    try:
+        # Saving validates the whole policy, so an unparsable, non-positive,
+        # or duplicate age never reaches the configuration file.
         path = _cli.save_retention_policy(entries, args.config)
-    except (OSError, TypeError, yaml.YAMLError) as exc:
+    except (OSError, TypeError, yaml.YAMLError, ValueError) as exc:
         print(f"Could not write configuration: {exc}", file=sys.stderr)
         return 1
     print(f"Retention policy saved to {path} ({len(entries)} entr{'y' if len(entries) == 1 else 'ies'})")
@@ -150,7 +159,7 @@ def _run_retention_list(args: argparse.Namespace) -> int:
     """Print the ``retentionPolicy`` entries, one indexed line per entry."""
     try:
         entries = _cli.load_retention_policy(args.config)
-    except (OSError, TypeError, yaml.YAMLError) as exc:
+    except (OSError, TypeError, yaml.YAMLError, ValueError) as exc:
         print(f"Could not read configuration: {exc}", file=sys.stderr)
         return 1
     if not entries:
@@ -165,7 +174,7 @@ def _run_retention_remove(args: argparse.Namespace) -> int:
     """Remove the ``retentionPolicy`` entry at the given zero-based index."""
     try:
         entries = _cli.load_retention_policy(args.config)
-    except (OSError, TypeError, yaml.YAMLError) as exc:
+    except (OSError, TypeError, yaml.YAMLError, ValueError) as exc:
         print(f"Could not read configuration: {exc}", file=sys.stderr)
         return 1
     if not 0 <= args.index < len(entries):
@@ -174,7 +183,7 @@ def _run_retention_remove(args: argparse.Namespace) -> int:
     removed = entries.pop(args.index)
     try:
         path = _cli.save_retention_policy(entries, args.config)
-    except (OSError, TypeError, yaml.YAMLError) as exc:
+    except (OSError, TypeError, yaml.YAMLError, ValueError) as exc:
         print(f"Could not write configuration: {exc}", file=sys.stderr)
         return 1
     print(

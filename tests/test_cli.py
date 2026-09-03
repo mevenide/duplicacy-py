@@ -67,7 +67,7 @@ class TestRetentionPolicy:
         assert load_retention_policy(tmp_path) == []
 
     def test_round_trips_entries(self, tmp_path: Path) -> None:
-        entries = [{"age": "7d", "frequency": "1h"}, {"age": "1w", "frequency": "5m"}]
+        entries = [{"age": "7d", "frequency": "1h"}, {"age": "30d", "frequency": "1d"}]
         path = save_retention_policy(entries, tmp_path)
         assert path == tmp_path / "config.yaml"
         assert load_retention_policy(tmp_path) == entries
@@ -89,6 +89,56 @@ class TestRetentionPolicy:
         (tmp_path / "config.yaml").write_text("retentionPolicy:\n- age: 7d\n")
         with pytest.raises(TypeError):
             load_retention_policy(tmp_path)
+
+    def test_load_rejects_duplicate_ages(self, tmp_path: Path) -> None:
+        (tmp_path / "config.yaml").write_text(
+            "retentionPolicy:\n- age: 7d\n  frequency: 1h\n- age: 1w\n  frequency: 1d\n"
+        )
+        with pytest.raises(ValueError) as excinfo:
+            load_retention_policy(tmp_path)
+        assert "ages must be unique" in str(excinfo.value)
+
+    def test_load_rejects_unparsable_age(self, tmp_path: Path) -> None:
+        (tmp_path / "config.yaml").write_text("retentionPolicy:\n- age: 7x\n  frequency: 1h\n")
+        with pytest.raises(ValueError):
+            load_retention_policy(tmp_path)
+
+    def test_load_rejects_non_positive_age(self, tmp_path: Path) -> None:
+        (tmp_path / "config.yaml").write_text("retentionPolicy:\n- age: 0s\n  frequency: 1h\n")
+        with pytest.raises(ValueError):
+            load_retention_policy(tmp_path)
+
+    def test_load_rejects_non_positive_frequency(self, tmp_path: Path) -> None:
+        (tmp_path / "config.yaml").write_text("retentionPolicy:\n- age: 7d\n  frequency: 0s\n")
+        with pytest.raises(ValueError):
+            load_retention_policy(tmp_path)
+
+    def test_save_rejects_duplicate_ages(self, tmp_path: Path) -> None:
+        entries = [{"age": "7d", "frequency": "1h"}, {"age": "1w", "frequency": "1d"}]
+        with pytest.raises(ValueError) as excinfo:
+            save_retention_policy(entries, tmp_path)
+        assert "ages must be unique" in str(excinfo.value)
+        assert not (tmp_path / "config.yaml").exists()
+
+    def test_save_rejects_non_positive_age(self, tmp_path: Path) -> None:
+        entries = [{"age": "0s", "frequency": "1h"}]
+        with pytest.raises(ValueError):
+            save_retention_policy(entries, tmp_path)
+        assert not (tmp_path / "config.yaml").exists()
+
+    @pytest.mark.parametrize("frequency", ["5m", "45m", "1h30m", "5h", "7h", "20h"])
+    def test_load_rejects_unsupported_frequencies(self, tmp_path: Path, frequency: str) -> None:
+        (tmp_path / "config.yaml").write_text(f"retentionPolicy:\n- age: 7d\n  frequency: {frequency}\n")
+        with pytest.raises(ValueError) as excinfo:
+            load_retention_policy(tmp_path)
+        assert "unsupported retention policy frequency" in str(excinfo.value)
+
+    def test_save_rejects_unsupported_frequency(self, tmp_path: Path) -> None:
+        entries = [{"age": "7d", "frequency": "5m"}]
+        with pytest.raises(ValueError) as excinfo:
+            save_retention_policy(entries, tmp_path)
+        assert "unsupported retention policy frequency" in str(excinfo.value)
+        assert not (tmp_path / "config.yaml").exists()
 
 
 class TestResolveExecutable:

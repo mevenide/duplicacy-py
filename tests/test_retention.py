@@ -8,11 +8,14 @@ from datetime import datetime
 
 import pytest
 
+from duplicacy_scripts.duration import parse_duration
 from duplicacy_scripts.retention import (
     Bucket,
     _grid_timestamps,
     buckets,
+    is_supported_frequency,
     select_revisions,
+    validate_retention_policy,
 )
 
 NOW = datetime(2026, 9, 1, 12, 0)
@@ -45,12 +48,10 @@ class TestBuckets:
             [{"age": "1d", "frequency": "1h"}, {"age": "7d", "frequency": "1h"}], NOW
         )
 
-    def test_duplicate_ages_are_merged(self) -> None:
-        boundary = datetime(2026, 8, 25, 12, 0)
-        assert buckets([{"age": "7d", "frequency": "1h"}, {"age": "1w", "frequency": "5m"}], NOW) == [
-            Bucket(None, boundary),
-            Bucket(boundary, None),
-        ]
+    def test_rejects_duplicate_ages(self) -> None:
+        with pytest.raises(ValueError) as excinfo:
+            buckets([{"age": "7d", "frequency": "1h"}, {"age": "1w", "frequency": "1d"}], NOW)
+        assert "ages must be unique" in str(excinfo.value)
 
     @pytest.mark.parametrize("age", ["0s", "-1h"])
     def test_rejects_non_positive_age(self, age: str) -> None:
@@ -227,31 +228,92 @@ class TestSelectRevisions:
         assert kept == {1, 3}
         assert pruned == {2}
 
-    def test_duplicate_ages_use_first_entry_frequency(self) -> None:
-        # The merged 7d/1w bucket takes the first entry's frequency (1h), so
-        # the hourly 13:00 and 14:00 ticks (equidistant ties resolve to the
-        # latest revision) keep all three revisions; the second entry's 1d
-        # frequency would have pruned revision 2.
-        revisions = [
-            _revision(1, datetime(2026, 8, 20, 12, 30)),
-            _revision(2, datetime(2026, 8, 20, 13, 30)),
-            _revision(3, datetime(2026, 8, 20, 14, 30)),
-        ]
-        kept, pruned = select_revisions(
-            revisions,
-            [{"age": "7d", "frequency": "1h"}, {"age": "1w", "frequency": "1d"}],
-            NOW,
-        )
-        assert kept == {1, 2, 3}
-        assert pruned == set()
+    def test_rejects_duplicate_ages(self) -> None:
+        with pytest.raises(ValueError) as excinfo:
+            select_revisions(
+                [],
+                [{"age": "7d", "frequency": "1h"}, {"age": "1w", "frequency": "1d"}],
+                NOW,
+            )
+        assert "ages must be unique" in str(excinfo.value)
 
     def test_rejects_non_positive_frequency(self) -> None:
         with pytest.raises(ValueError):
             select_revisions([], [{"age": "7d", "frequency": "0s"}], NOW)
 
+    def test_rejects_unsupported_frequency(self) -> None:
+        with pytest.raises(ValueError) as excinfo:
+            select_revisions([], [{"age": "7d", "frequency": "5m"}], NOW)
+        assert "unsupported retention policy frequency" in str(excinfo.value)
+
     def test_rejects_unparsable_frequency(self) -> None:
         with pytest.raises(ValueError):
             select_revisions([], [{"age": "7d", "frequency": "1x"}], NOW)
+
+
+class TestValidateRetentionPolicy:
+    def test_accepts_valid_policy(self) -> None:
+        validate_retention_policy(
+            [{"age": "7d", "frequency": "1h"}, {"age": "30d", "frequency": "1d"}]
+        )
+
+    def test_accepts_empty_policy(self) -> None:
+        validate_retention_policy([])
+
+    @pytest.mark.parametrize(
+        ("policy", "message"),
+        [
+            ([{"age": "7x", "frequency": "1h"}], "invalid duration"),
+            ([{"age": "0s", "frequency": "1h"}], "ages must be positive"),
+            ([{"age": "-1h", "frequency": "1h"}], "ages must be positive"),
+            ([{"age": "7d", "frequency": "1x"}], "invalid duration"),
+            ([{"age": "7d", "frequency": "0s"}], "frequencies must be positive"),
+            ([{"age": "7d", "frequency": "5m"}], "unsupported retention policy frequency"),
+        ],
+    )
+    def test_rejects_invalid_entry(self, policy: list[dict[str, str]], message: str) -> None:
+        with pytest.raises(ValueError) as excinfo:
+            validate_retention_policy(policy)
+        assert message in str(excinfo.value)
+
+    def test_rejects_identical_ages(self) -> None:
+        policy = [{"age": "7d", "frequency": "1h"}, {"age": "7d", "frequency": "1d"}]
+        with pytest.raises(ValueError) as excinfo:
+            validate_retention_policy(policy)
+        assert "ages must be unique: '7d' is the same duration as '7d'" in str(excinfo.value)
+
+    def test_rejects_equivalent_ages(self) -> None:
+        # 7d and 1w parse to the same number of seconds, so they collide.
+        policy = [{"age": "7d", "frequency": "1h"}, {"age": "1w", "frequency": "1d"}]
+        with pytest.raises(ValueError) as excinfo:
+            validate_retention_policy(policy)
+        assert "ages must be unique: '1w' is the same duration as '7d'" in str(excinfo.value)
+
+    def test_rejects_duplicate_later_in_policy(self) -> None:
+        policy = [
+            {"age": "7d", "frequency": "1h"},
+            {"age": "30d", "frequency": "1d"},
+            {"age": "1w", "frequency": "30m"},
+        ]
+        with pytest.raises(ValueError) as excinfo:
+            validate_retention_policy(policy)
+        assert "ages must be unique" in str(excinfo.value)
+
+
+class TestIsSupportedFrequency:
+    @pytest.mark.parametrize(
+        "frequency",
+        ["15m", "30m", "1h", "2h", "3h", "4h", "6h", "8h", "12h", "24h", "1d", "2d", "1w", "1month", "1y"],
+    )
+    def test_accepts_supported_frequencies(self, frequency: str) -> None:
+        assert is_supported_frequency(parse_duration(frequency))
+
+    @pytest.mark.parametrize(
+        "frequency",
+        ["5m", "10m", "45m", "1h30m", "5h", "7h", "9h", "11h", "20h", "25h", "36h", "0s", "-1h"],
+    )
+    def test_rejects_unsupported_frequencies(self, frequency: str) -> None:
+        assert not is_supported_frequency(parse_duration(frequency))
 
 
 class TestGridTimestamps:

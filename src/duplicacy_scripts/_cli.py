@@ -17,6 +17,8 @@ from dotenv import load_dotenv
 from platformdirs import user_config_dir
 import yaml
 
+from duplicacy_scripts.retention import validate_retention_policy
+
 
 class CliError(RuntimeError):
     """Raised when a CLI command fails (non-zero exit or cannot run)."""
@@ -113,7 +115,8 @@ def load_retention_policy(config_dir: str | os.PathLike[str] | None = None) -> l
 
     Each entry is a mapping with ``age`` and ``frequency`` duration strings.
     A missing file or key yields an empty list; a non-list or malformed entry
-    raises ``TypeError``.
+    raises ``TypeError``, and an invalid policy (unparsable or non-positive
+    age or frequency, or duplicate ages) raises ``ValueError``.
     """
     policy = load_config(config_dir).get("retentionPolicy", [])
     if not isinstance(policy, list) or any(
@@ -121,14 +124,22 @@ def load_retention_policy(config_dir: str | os.PathLike[str] | None = None) -> l
         for entry in policy
     ):
         raise TypeError("retentionPolicy must contain a list of {age, frequency} mappings")
-    return [{"age": str(entry["age"]), "frequency": str(entry["frequency"])} for entry in policy]
+    entries = [{"age": str(entry["age"]), "frequency": str(entry["frequency"])} for entry in policy]
+    validate_retention_policy(entries)
+    return entries
 
 
 def save_retention_policy(
     entries: list[dict[str, str]],
     config_dir: str | os.PathLike[str] | None = None,
 ) -> Path:
-    """Persist ``retentionPolicy`` entries and return the configuration path."""
+    """Persist ``retentionPolicy`` entries and return the configuration path.
+
+    The entries are validated first (unparsable or non-positive age or
+    frequency, or duplicate ages, raise ``ValueError``) so an invalid policy
+    is never written.
+    """
+    validate_retention_policy(entries)
     path = config_file(config_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
     configuration = load_config(config_dir)

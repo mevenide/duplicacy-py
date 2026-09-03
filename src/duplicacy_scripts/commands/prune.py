@@ -88,12 +88,13 @@ def run(args: argparse.Namespace) -> int:
     # frequency grid ticks fall exactly on calendar days regardless of
     # when the command runs.
     now = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    # load_retention_policy validates the whole policy (unparsable,
+    # non-positive, or duplicate ages; invalid frequencies), so an invalid
+    # policy exits with an error before the duplicacy CLI runs.
     try:
         policy = _cli.load_retention_policy(args.config)
         policy_buckets = buckets(policy, now)
-        # Validate the frequencies too, before the duplicacy CLI runs.
-        select_revisions([], policy, now)
-    except ValueError as exc:
+    except (TypeError, ValueError) as exc:
         print(exc, file=sys.stderr)
         return 1
     result = _cli.run_cli([executable, "list", "-id", snapshot_id], cwd=repo)

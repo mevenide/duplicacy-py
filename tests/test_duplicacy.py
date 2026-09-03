@@ -501,6 +501,26 @@ class TestMain:
         assert duplicacy.main(["prune", "--config", str(tmp_path), "--snapshot-id", "vm"]) == 1
         assert "invalid duration" in capsys.readouterr().err
 
+    def test_prune_returns_one_on_duplicate_retention_age(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        fake_executable: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        (tmp_path / "repo").mkdir()
+        (tmp_path / "config.yaml").write_text(
+            "retentionPolicy:\n- age: 7d\n  frequency: 1h\n- age: 1w\n  frequency: 1h\n"
+        )
+
+        def fail_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> _cli.CliResult:
+            raise AssertionError("the duplicacy CLI should not run for an invalid retention policy")
+
+        monkeypatch.setattr(_cli, "run_cli", fail_run_cli)
+
+        assert duplicacy.main(["prune", "--config", str(tmp_path), "--snapshot-id", "vm"]) == 1
+        assert "ages must be unique" in capsys.readouterr().err
+
     def test_lists_snapshot_ids(
         self,
         tmp_path: Path,
@@ -619,11 +639,19 @@ class TestRetention:
     def test_add_appends_entry(self, tmp_path: Path, capsys) -> None:
         argv = ["config", "retention-policy", "add", "--config", str(tmp_path), "--age", "7d", "--frequency", "1h"]
         assert duplicacy.main(argv) == 0
-        assert duplicacy.main(argv) == 0
+        argv2 = ["config", "retention-policy", "add", "--config", str(tmp_path), "--age", "30d", "--frequency", "1h"]
+        assert duplicacy.main(argv2) == 0
         assert (tmp_path / "config.yaml").read_text() == (
-            "retentionPolicy:\n- age: 7d\n  frequency: 1h\n- age: 7d\n  frequency: 1h\n"
+            "retentionPolicy:\n- age: 7d\n  frequency: 1h\n- age: 30d\n  frequency: 1h\n"
         )
         assert "Retention policy saved" in capsys.readouterr().out
+
+    def test_add_rejects_duplicate_age(self, tmp_path: Path, capsys) -> None:
+        (tmp_path / "config.yaml").write_text("retentionPolicy:\n- age: 7d\n  frequency: 1h\n")
+        argv = ["config", "retention-policy", "add", "--config", str(tmp_path), "--age", "1w", "--frequency", "1h"]
+        assert duplicacy.main(argv) == 1
+        assert "ages must be unique" in capsys.readouterr().err
+        assert (tmp_path / "config.yaml").read_text() == "retentionPolicy:\n- age: 7d\n  frequency: 1h\n"
 
     def test_add_rejects_invalid_duration(self, tmp_path, capsys) -> None:
         argv = ["config", "retention-policy", "add", "--config", str(tmp_path), "--age", "7x", "--frequency", "1h"]
@@ -633,10 +661,10 @@ class TestRetention:
 
     def test_list_prints_indexed_entries(self, tmp_path, capsys) -> None:
         (tmp_path / "config.yaml").write_text(
-            "retentionPolicy:\n- age: 7d\n  frequency: 1h\n- age: 1w\n  frequency: 5m\n"
+            "retentionPolicy:\n- age: 7d\n  frequency: 1h\n- age: 30d\n  frequency: 1d\n"
         )
         assert duplicacy.main(["config", "retention-policy", "list", "--config", str(tmp_path)]) == 0
-        assert capsys.readouterr().out == "0: age=7d frequency=1h\n1: age=1w frequency=5m\n"
+        assert capsys.readouterr().out == "0: age=7d frequency=1h\n1: age=30d frequency=1d\n"
 
     def test_list_empty_policy(self, tmp_path, capsys) -> None:
         assert duplicacy.main(["config", "retention-policy", "list", "--config", str(tmp_path)]) == 0
@@ -644,10 +672,10 @@ class TestRetention:
 
     def test_remove_deletes_entry_by_index(self, tmp_path, capsys) -> None:
         (tmp_path / "config.yaml").write_text(
-            "retentionPolicy:\n- age: 7d\n  frequency: 1h\n- age: 1w\n  frequency: 5m\n"
+            "retentionPolicy:\n- age: 7d\n  frequency: 1h\n- age: 30d\n  frequency: 1d\n"
         )
         assert duplicacy.main(["config", "retention-policy", "remove", "0", "--config", str(tmp_path)]) == 0
-        assert (tmp_path / "config.yaml").read_text() == "retentionPolicy:\n- age: 1w\n  frequency: 5m\n"
+        assert (tmp_path / "config.yaml").read_text() == "retentionPolicy:\n- age: 30d\n  frequency: 1d\n"
         assert "Removed entry 0" in capsys.readouterr().out
 
     def test_remove_rejects_out_of_range_index(self, tmp_path, capsys) -> None:
@@ -657,8 +685,31 @@ class TestRetention:
 
     def test_preserves_other_variables(self, tmp_path, capsys) -> None:
         (tmp_path / "config.yaml").write_text("duplicacy: /opt/duplicacy\n")
-        argv = ["config", "retention-policy", "add", "--config", str(tmp_path), "--age", "1w", "--frequency", "5m"]
+        argv = ["config", "retention-policy", "add", "--config", str(tmp_path), "--age", "1w", "--frequency", "1d"]
         assert duplicacy.main(argv) == 0
         assert (tmp_path / "config.yaml").read_text() == (
-            "duplicacy: /opt/duplicacy\nretentionPolicy:\n- age: 1w\n  frequency: 5m\n"
+            "duplicacy: /opt/duplicacy\nretentionPolicy:\n- age: 1w\n  frequency: 1d\n"
         )
+
+    def test_list_rejects_duplicate_ages(self, tmp_path, capsys) -> None:
+        (tmp_path / "config.yaml").write_text(
+            "retentionPolicy:\n- age: 7d\n  frequency: 1h\n- age: 1w\n  frequency: 1d\n"
+        )
+        assert duplicacy.main(["config", "retention-policy", "list", "--config", str(tmp_path)]) == 1
+        assert "ages must be unique" in capsys.readouterr().err
+
+    def test_remove_rejects_duplicate_ages(self, tmp_path, capsys) -> None:
+        (tmp_path / "config.yaml").write_text(
+            "retentionPolicy:\n- age: 7d\n  frequency: 1h\n- age: 1w\n  frequency: 1d\n"
+        )
+        assert duplicacy.main(["config", "retention-policy", "remove", "0", "--config", str(tmp_path)]) == 1
+        assert "ages must be unique" in capsys.readouterr().err
+        assert (tmp_path / "config.yaml").read_text() == (
+            "retentionPolicy:\n- age: 7d\n  frequency: 1h\n- age: 1w\n  frequency: 1d\n"
+        )
+
+    def test_add_rejects_unsupported_frequency(self, tmp_path, capsys) -> None:
+        argv = ["config", "retention-policy", "add", "--config", str(tmp_path), "--age", "7d", "--frequency", "5m"]
+        assert duplicacy.main(argv) == 1
+        assert "unsupported retention policy frequency" in capsys.readouterr().err
+        assert not (tmp_path / "config.yaml").exists()
