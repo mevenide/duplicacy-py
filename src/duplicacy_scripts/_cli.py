@@ -211,15 +211,23 @@ def run_cli(
 
     Args are passed as a list (never through a shell), so paths with spaces
     work the same on Windows and POSIX. With ``check=True`` (the default) a
-    non-zero exit raises :class:`CliError`.
+    non-zero exit raises :class:`CliError`, as does a failure to run the
+    command at all (e.g. the resolved executable does not exist).
     """
     args = [str(a) for a in args]
-    completed = subprocess.run(
-        args,
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        completed = subprocess.run(
+            args,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+        )
+    except OSError as exc:
+        # subprocess.run raises before any result exists when the
+        # executable path is stale/broken (FileNotFoundError), not
+        # executable (PermissionError), etc.; surface that as a CliError
+        # instead of letting a raw traceback escape to the user.
+        raise CliError(args, None, str(exc)) from exc
     result = CliResult(
         args=args,
         returncode=completed.returncode,

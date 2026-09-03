@@ -206,6 +206,26 @@ class TestRunCli:
         assert result.stderr == "oops\n"
         assert "oops" in result.output
 
+    def test_raises_when_executable_does_not_exist(self) -> None:
+        # Regression test: subprocess.run raises FileNotFoundError before any
+        # result exists when the resolved executable path does not exist, and
+        # that OSError used to escape as a raw traceback instead of a CliError.
+        missing = "/nonexistent/bin/definitely-not-a-real-binary-xyz"
+        with pytest.raises(CliError) as excinfo:
+            run_cli([missing, "list"])
+        assert excinfo.value.returncode is None
+        assert excinfo.value.args_list == [missing, "list"]
+        assert missing in str(excinfo.value)
+
+    def test_raises_when_executable_is_not_executable(self, tmp_path: Path) -> None:
+        # PermissionError is the other common OSError from subprocess.run.
+        script = tmp_path / "not-executable.sh"
+        script.write_text("#!/bin/sh\ntrue\n")
+        script.chmod(0o644)  # readable but no execute bit
+        with pytest.raises(CliError) as excinfo:
+            run_cli([str(script)])
+        assert excinfo.value.returncode is None
+
 
 class TestLoadEnv:
     def test_loads_env_file(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

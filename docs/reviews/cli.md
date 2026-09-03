@@ -12,7 +12,8 @@ shell, `CliError` -> exit code 1), the module docstrings are accurate and
 unusually detailed, and the test suite is strong (172 tests pass in ~0.6s).
 Findings below are ranked; F1 is a real, reproducible behavior bug, F2 is a
 robustness gap worth fixing, the rest are minor or informational. No blocking
-issues. ✅ F1 has since been fixed (see its Resolved note).
+issues. ✅ F1 has since been fixed (see its Resolved note). ✅ F2 was fixed
+afterwards (see its Resolved note).
 
 ## Strengths
 
@@ -78,7 +79,7 @@ cwd `.env` and ran the real binary); walk-up from a nested subdirectory
 works; and `uv run duplicacy-py list` from the repo root still resolves the
 real binary. Full suite: 175 passed.
 
-### F2. `FileNotFoundError` from `subprocess.run` escapes as a traceback (High)
+### ✅ F2. `FileNotFoundError` from `subprocess.run` escapes as a traceback (High) — RESOLVED
 
 `_cli.run_cli` handles non-zero exits via `CliError`, but if the resolved
 executable path does not exist, `subprocess.run` raises `FileNotFoundError`
@@ -98,11 +99,22 @@ this is reachable in normal use. `main()` catches only `CliError`, so the user
 gets a raw traceback and the process exits via the Python default instead of
 the documented "exit code 1 with stderr message".
 
-Suggested fix: catch `OSError` in `run_cli` and re-raise as
-`CliError(args, None, str(exc))` (exit code `None` already has precedent in
-`CliError` for "could not run" cases). Alternatively catch
-`(CliError, OSError)` in `main()` — but wrapping in `run_cli` keeps the
-invariant "any CLI invocation failure is a `CliError`".
+Resolved 2026-09-03: applied the suggested fix as written — `run_cli` now wraps
+`subprocess.run` in `try/except OSError` and re-raises
+`CliError(args, None, str(exc))` with `raise ... from exc`, so any CLI
+invocation failure is a `CliError` and `main()` prints the message to stderr
+and exits 1. The docstring documents the new behavior.
+
+Guarded by two regression tests in `tests/test_cli.py` (`TestRunCli`): a
+nonexistent executable path raises `CliError` with `returncode is None`,
+preserved `args_list`, and the path in the message; a readable but
+non-executable script (mode 0o644) raises `CliError` with `returncode is None`
+(the PermissionError case). Verified end to end:
+`DUPLICACY_EXECUTABLE=/nonexistent/bin uv run duplicacy-py list` now prints
+`/nonexistent/bin failed with exit code None:` followed by
+`[Errno 2] No such file or directory: '/nonexistent/bin'` and exits 1
+(previously the raw `FileNotFoundError` traceback above). Full suite:
+177 passed.
 
 ### F3. `prune` never prints the duplicacy stderr banner (Low)
 
@@ -183,11 +195,10 @@ timestamps, the retention math shifts. No action needed now; the docstring in
 
 ## Suggestions (non-blocking, ordered)
 
-1. F1 was fixed on 2026-09-03 (see its Resolved note). Remaining: F2
-   (`OSError` → `CliError` in `run_cli`), which is small and testable.
+1. ✅ F1 and F2 were fixed on 2026-09-03 (see their Resolved notes).
 2. Optionally forward captured stderr in `prune` (F3) or document the omission.
 3. Add `ruff` to the dev dependencies and a minimal config; the codebase is
    already consistent enough that it will pass with few suppressions.
-4. Consider a short "Troubleshooting" section in the README covering the F2
-   failure mode ("resolved executable does not exist") since it is the most
-   likely first-run failure for new users.
+4. Consider a short "Troubleshooting" section in the README covering the
+   fixed-but-worth-documenting failure mode "resolved executable does not
+   exist" since it is the most likely first-run failure for new users.
