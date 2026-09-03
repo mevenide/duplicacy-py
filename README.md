@@ -40,11 +40,17 @@ The available commands are:
   retention policy (unparsable or non-positive age, duplicate ages, or an
   unparsable, non-positive, or unsupported frequency) or an unknown
   `retentionAnchor` value (see below) exits with an error
-  before the duplicacy CLI runs. When
-  `--snapshot-id` is omitted and stdin is
-  interactive, an up/down arrow picker (with Enter to select) offers the
-  snapshot ids found in the repository; when stdin is not interactive, it
-  lists the available ids and exits with an error.
+  before the duplicacy CLI runs. The retention policy and anchor are printed
+  to stderr for the user's information before the snapshot id is chosen (the
+  policy one indexed line per entry, sorted latest to earliest by parsed age
+  with each entry's configuration index, or `Retention policy: none (all
+  revisions are kept)` without one), a `--snapshot-id` passed on the command
+  line is echoed to stderr instead of asking, and when `--snapshot-id` is
+  omitted and stdin is interactive, an up/down arrow picker (with Enter to
+  select) offers the snapshot ids found in the repository; when stdin is not
+  interactive, it lists the available ids and exits with an error. All of
+  this informational output goes to stderr so stdout stays parse-only
+  revision output.
 - `config init --storage <storage url>` creates the configuration file and
   initializes a duplicacy repository in the `repo` subdirectory of the
   configuration directory (snapshot id: `duplicacy-py-dummy`). An existing

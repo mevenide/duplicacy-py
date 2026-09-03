@@ -310,7 +310,12 @@ class TestMain:
         assert duplicacy.main(["prune", "--config", str(tmp_path)]) == 0
         assert captured["args"] == [fake_executable, "list", "-id", "vm"]
         assert captured["cwd"] == tmp_path / "repo"
-        assert capsys.readouterr().out == "5 created at 2026-01-01 09:45\n12 created at 2026-01-01 10:00\n"
+        output = capsys.readouterr()
+        assert output.out == "5 created at 2026-01-01 09:45\n12 created at 2026-01-01 10:00\n"
+        # The retention summary and the picked id are informational only.
+        assert "Retention policy: none (all revisions are kept)" in output.err
+        assert "Retention anchor: latestRevision" in output.err
+        assert "Snapshot id: vm" not in output.err
 
     def test_prune_forwards_duplicacy_stderr_to_stderr(
         self,
@@ -332,7 +337,83 @@ class TestMain:
         assert duplicacy.main(["prune", "--config", str(tmp_path), "--snapshot-id", "vm"]) == 0
         captured = capsys.readouterr()
         assert captured.out == ""
-        assert captured.err == stderr
+        # The forwarded diagnostics follow the informational lines (the
+        # retention summary printed before the duplicacy CLI runs).
+        assert captured.err.endswith(stderr)
+        assert "Retention policy:" in captured.err
+        assert "Snapshot id: vm" in captured.err
+
+    def test_prune_prints_policy_entries_before_picker(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        fake_executable: str,
+        monkeypatch: pytest.MonkeyPatch,
+        snapshot_list_output: str,
+    ) -> None:
+        (tmp_path / "repo").mkdir()
+        # The oldest age is listed first in the configuration on purpose:
+        # the summary sorts the entries latest to earliest while keeping
+        # each entry's configuration index.
+        (tmp_path / "config.yaml").write_text(
+            "retentionPolicy:\n- age: 1month\n  frequency: 1d\n- age: 7d\n  frequency: 1h\n"
+            "retentionAnchor: today\n"
+        )
+
+        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> _cli.CliResult:
+            if args_list[1:3] == ["list", "-all"]:
+                return _cli.CliResult(args=args_list, returncode=0, stdout=snapshot_list_output, stderr="")
+            raise AssertionError("the picker should not be offered after a cancelled selection")
+
+        monkeypatch.setattr(_cli, "run_cli", fake_run_cli)
+        monkeypatch.setattr(prune_command.sys.stdin, "isatty", lambda: True)
+        monkeypatch.setattr(prune_command, "select_option", lambda message, choices: None)
+
+        assert duplicacy.main(["prune", "--config", str(tmp_path)]) == 1
+        error = capsys.readouterr().err
+        # The policy and anchor are printed before the picker is offered,
+        # latest entry (7d) first and earliest (1month) last, each with
+        # its configuration-file index.
+        assert error.startswith(
+            "Retention anchor: today\n"
+            "Retention policy: 2 entries\n"
+            "  1: age=7d frequency=1h\n"
+            "  0: age=1month frequency=1d\n"
+        )
+
+    def test_prune_prints_policy_and_cli_snapshot_id(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        fake_executable: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        (tmp_path / "repo").mkdir()
+        (tmp_path / "config.yaml").write_text("retentionPolicy:\n- age: 1w\n  frequency: 1d\n")
+
+        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> _cli.CliResult:
+            if args_list[1:3] == ["list", "-all"]:
+                raise AssertionError("the picker should not run when --snapshot-id is given")
+            return _cli.CliResult(args=args_list, returncode=0, stdout="Storage set to /tmp/storage\n", stderr="")
+
+        monkeypatch.setattr(_cli, "run_cli", fake_run_cli)
+        # Fixed now() keeps the empty-bucket headers deterministic: with
+        # the 1w age anchored at midnight on 2026-09-01, the boundary is
+        # 2026-08-25 00:00 and there are no revisions to fill either bucket.
+        monkeypatch.setattr(prune_command, "datetime", FixedDateTime)
+
+        assert duplicacy.main(["prune", "--config", str(tmp_path), "--snapshot-id", "db"]) == 0
+        output = capsys.readouterr()
+        assert output.out == (
+            "Bucket 0: [the beginning, 2026-08-25 00:00)\n"
+            "Bucket 1: [2026-08-25 00:00, now)\n"
+        )
+        assert output.err == (
+            "Retention anchor: latestRevision\n"
+            "Retention policy: 1 entry\n"
+            "  0: age=1w frequency=1d\n"
+            "Snapshot id: db\n"
+        )
 
     def test_prune_picker_cancelled_returns_one(
         self,

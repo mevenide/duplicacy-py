@@ -2,7 +2,11 @@
 retention policy buckets and marked kept or pruned. All bucket boundaries
 and frequency grid ticks are aligned to midnight: the reference time is
 midnight of the day of the snapshot's latest revision (the default), or
-midnight of the current day with ``retentionAnchor: today``."""
+midnight of the current day with ``retentionAnchor: today``.
+
+The retention policy and anchor are printed to stderr for the user's
+information before the snapshot id is chosen, the policy sorted latest
+to earliest, keeping stdout parse-only revision output."""
 
 from __future__ import annotations
 
@@ -13,6 +17,7 @@ from datetime import datetime
 import questionary
 
 from duplicacy_scripts import _cli
+from duplicacy_scripts.duration import parse_duration
 from duplicacy_scripts.retention import Bucket, buckets, select_revisions
 
 BUCKET_TIME_FORMAT = "%Y-%m-%d %H:%M"
@@ -31,6 +36,30 @@ def _print_duplicacy_stderr(stderr: str) -> None:
     """
     if stderr:
         print(stderr, end="", file=sys.stderr)
+
+
+def _print_retention_summary(policy: list[dict[str, str]], anchor: _cli.RetentionAnchor) -> None:
+    """Print the retention policy and anchor for the user's information.
+
+    These go to stderr so stdout stays parse-only revision output, and
+    before the snapshot id is chosen so the user sees what will classify
+    the revisions while picking one. Entries print latest to earliest
+    (ascending parsed age), each labelled with its index in the
+    configuration file so it matches ``config retention-policy list``;
+    the retention processing sorts the ages itself (see
+    ``retention.py``), so the configuration order never affects the
+    result.
+    """
+    print(f"Retention anchor: {anchor.value}", file=sys.stderr)
+    if not policy:
+        print("Retention policy: none (all revisions are kept)", file=sys.stderr)
+        return
+    print(f"Retention policy: {len(policy)} entr{'y' if len(policy) == 1 else 'ies'}", file=sys.stderr)
+    # parse_duration cannot fail here: load_retention_policy already
+    # validated every age before the summary is printed.
+    latest_first = sorted(enumerate(policy), key=lambda indexed: parse_duration(indexed[1]["age"]))
+    for index, entry in latest_first:
+        print(f"  {index}: age={entry['age']} frequency={entry['frequency']}", file=sys.stderr)
 
 
 def _select_snapshot_id(executable: str, repo) -> str | None:
@@ -91,11 +120,6 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
 def run(args: argparse.Namespace) -> int:
     """List revisions for the chosen snapshot id (interactive picker when omitted)."""
     executable, repo = _cli.prepare_repo(args.config)
-    snapshot_id = args.snapshot_id
-    if snapshot_id is None:
-        snapshot_id = _select_snapshot_id(executable, repo)
-        if snapshot_id is None:
-            return 1
     # load_retention_policy validates the whole policy (unparsable,
     # non-positive, or duplicate ages; invalid frequencies), and
     # load_retention_anchor rejects unknown anchors, so an invalid
@@ -106,6 +130,16 @@ def run(args: argparse.Namespace) -> int:
     except (TypeError, ValueError) as exc:
         print(exc, file=sys.stderr)
         return 1
+    _print_retention_summary(policy, anchor)
+    snapshot_id = args.snapshot_id
+    if snapshot_id is None:
+        snapshot_id = _select_snapshot_id(executable, repo)
+        if snapshot_id is None:
+            return 1
+    else:
+        # A CLI-supplied id is echoed for the user's information instead
+        # of asking; stderr keeps stdout parse-only.
+        print(f"Snapshot id: {snapshot_id}", file=sys.stderr)
     result = _cli.run_cli([executable, "list", "-id", snapshot_id], cwd=repo)
     _print_duplicacy_stderr(result.stderr)
     revisions = _cli.revisions(result.stdout)
