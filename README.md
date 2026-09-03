@@ -13,7 +13,7 @@ Run the installed CLI with a command:
 ```sh
 uv run duplicacy-py backup
 uv run duplicacy-py list
-uv run duplicacy-py prune --dry-run --snapshot-id <snapshot id>
+uv run duplicacy-py prune [--dry-run] --snapshot-id <snapshot id>
 uv run duplicacy-py config init --storage <storage url>
 uv run duplicacy-py config var duplicacy=/path/to/duplicacy
 uv run duplicacy-py config retention-policy add --age 7d --frequency 1h
@@ -26,8 +26,19 @@ The available commands are:
 - `list` prints the snapshot ids found in the repository (one per line,
   sorted, duplicates removed).
 - `prune [--dry-run] [--snapshot-id <snapshot id>]` prints what the prune
-  command would do if it ran; without `--dry-run` it does nothing. With
-  `--dry-run`, it lists the revisions for the supplied snapshot id, parsed
+  command would do if it ran; it never prunes itself. Without `--dry-run`,
+  it prints the `duplicacy prune` command(s) that would delete the pruned
+  revisions (to stderr, as
+  `Prune command (not run): <executable> prune -id <id> -r <start-end> ...` —
+  by default one command carrying one `-r <start-end>` argument per
+  consecutive run of pruned revisions, singletons as `-r <revision>`; the
+  upstream CLI deletes the union of all `-r` arguments), or `No revisions to
+  prune` when the retention policy keeps everything; the commands are
+  printed, not run. The `pruneMaxRangesPerCommand` configuration key
+  (default 64) caps how many `-r` arguments merge into one command; past
+  it the remaining ranges spill into additional commands (printed in
+  order; run them sequentially, not in parallel). With `--dry-run`, it
+  lists the revisions for the supplied snapshot id, parsed
   from the `duplicacy list` output, running in the `repo`
   subdirectory of the configuration directory. When the `retentionPolicy`
   configuration key contains ages, the revisions are grouped under retention
@@ -49,7 +60,8 @@ The available commands are:
   policy one indexed line per entry, sorted latest to earliest by parsed age
   with each entry's configuration index, or `Retention policy: none (all
   revisions are kept)` without one), a `--snapshot-id` passed on the command
-  line is echoed to stderr instead of asking, and when `--snapshot-id` is
+  line is echoed to stderr instead of asking (in both modes, and the prune
+  commands are preceded by the echo too), and when `--snapshot-id` is
   omitted and stdin is interactive, an up/down arrow picker (with Enter to
   select) offers the snapshot ids found in the repository; when stdin is not
   interactive, it lists the available ids and exits with an error. All of

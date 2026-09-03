@@ -154,6 +154,10 @@ class RetentionAnchor(enum.StrEnum):
     TODAY = "today"
 
 
+PRUNE_MAX_RANGES_PER_COMMAND_KEY = "pruneMaxRangesPerCommand"
+DEFAULT_PRUNE_MAX_RANGES = 64
+
+
 def load_retention_anchor(config_dir: str | os.PathLike[str] | None = None) -> RetentionAnchor:
     """Return the :class:`RetentionAnchor` from the configuration file.
 
@@ -172,6 +176,24 @@ def load_retention_anchor(config_dir: str | os.PathLike[str] | None = None) -> R
         raise ValueError(
             f"{config_file(config_dir)}: {RETENTION_ANCHOR_KEY} must be {allowed} (got {value!r})"
         ) from None
+
+
+def load_prune_max_ranges_per_command(config_dir: str | os.PathLike[str] | None = None) -> int:
+    """Return the maximum ``-r`` ranges merged into one ``duplicacy prune`` command.
+
+    Read from the ``pruneMaxRangesPerCommand`` configuration key: a
+    missing key yields the default (64, enough for any real retention
+    run while keeping the command readable); a value that is not a
+    positive integer (bools included — YAML ``true`` parses as a bool,
+    which is not an integer here) raises ``ValueError`` naming the
+    configuration file and the key.
+    """
+    value = load_config(config_dir).get(PRUNE_MAX_RANGES_PER_COMMAND_KEY, DEFAULT_PRUNE_MAX_RANGES)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError(
+            f"{config_file(config_dir)}: {PRUNE_MAX_RANGES_PER_COMMAND_KEY} must be a positive integer (got {value!r})"
+        )
+    return int(value)
 
 
 def save_retention_policy(

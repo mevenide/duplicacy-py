@@ -421,7 +421,238 @@ class TestMain:
             "Snapshot id: db\n"
         )
 
-    def test_prune_without_dry_run_does_nothing(
+    def test_prune_without_dry_run_prints_prune_commands(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        fake_executable: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # Without --dry-run the command prints (to stderr, with stdout
+        # staying empty) the duplicacy prune command that would delete the
+        # pruned revisions, instead of running it: the same classification
+        # the dry run displays, and the duplicacy CLI only lists.
+        (tmp_path / "repo").mkdir()
+        (tmp_path / "config.yaml").write_text("retentionAnchor: today\nretentionPolicy:\n- age: 7d\n  frequency: 7d\n")
+        list_output = (
+            "Storage set to /tmp/storage\n"
+            "Snapshot vm revision 1 created at 2026-08-24 10:00\n"
+            "Snapshot vm revision 2 created at 2026-08-24 11:00\n"
+            "Snapshot vm revision 3 created at 2026-08-24 14:00\n"
+        )
+        seen: list[list[str]] = []
+
+        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> _cli.CliResult:
+            seen.append(args_list)
+            return _cli.CliResult(args=args_list, returncode=0, stdout=list_output, stderr="")
+
+        monkeypatch.setattr(_cli, "run_cli", fake_run_cli)
+        monkeypatch.setattr(prune_command, "datetime", FixedDateTime)
+
+        assert duplicacy.main(["prune", "--config", str(tmp_path), "--snapshot-id", "vm"]) == 0
+        assert seen == [[fake_executable, "list", "-id", "vm"]]
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        # Revision 2 is the one the retention policy prunes (see
+        # test_prune_marks_revisions_kept_or_pruned for the same scenario).
+        assert captured.err == (
+            "Retention anchor: today\n"
+            "Retention policy: 1 entry\n"
+            "  0: age=7d frequency=7d\n"
+            "Snapshot id: vm\n"
+            "Prune command (not run): /fake/duplicacy prune -id vm -r 2\n"
+        )
+
+    def test_prune_without_dry_run_prints_nothing_to_prune_when_all_kept(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        fake_executable: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # With no retention policy every revision is kept, so there is no
+        # prune command to print.
+        (tmp_path / "repo").mkdir()
+        list_output = (
+            "Storage set to /tmp/storage\n"
+            "Snapshot vm revision 1 created at 2026-08-24 10:00\n"
+        )
+
+        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> _cli.CliResult:
+            return _cli.CliResult(args=args_list, returncode=0, stdout=list_output, stderr="")
+
+        monkeypatch.setattr(_cli, "run_cli", fake_run_cli)
+        monkeypatch.setattr(prune_command, "datetime", FixedDateTime)
+
+        assert duplicacy.main(["prune", "--config", str(tmp_path), "--snapshot-id", "vm"]) == 0
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert captured.err == (
+            "Retention anchor: latestRevision\n"
+            "Retention policy: none (all revisions are kept)\n"
+            "Snapshot id: vm\n"
+            "No revisions to prune\n"
+        )
+
+    def test_prune_without_dry_run_collapses_consecutive_revisions_into_ranges(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        fake_executable: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # The upstream CLI's -r flag accepts single revisions and
+        # start-end ranges (getRevisions in duplicacy_main.go), so a run
+        # of consecutive pruned revisions collapses into one range and a
+        # singleton stays a single number, all within one command.
+        (tmp_path / "repo").mkdir()
+        (tmp_path / "config.yaml").write_text("retentionAnchor: today\nretentionPolicy:\n- age: 7d\n  frequency: 7d\n")
+        list_output = (
+            "Storage set to /tmp/storage\n"
+            "Snapshot vm revision 1 created at 2026-08-19 09:00\n"
+            "Snapshot vm revision 2 created at 2026-08-19 10:00\n"
+            "Snapshot vm revision 3 created at 2026-08-19 11:00\n"
+            "Snapshot vm revision 5 created at 2026-08-20 09:00\n"
+            "Snapshot vm revision 6 created at 2026-08-20 10:00\n"
+            "Snapshot vm revision 8 created at 2026-08-20 12:00\n"
+            "Snapshot vm revision 9 created at 2026-08-25 10:00\n"
+        )
+
+        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> _cli.CliResult:
+            return _cli.CliResult(args=args_list, returncode=0, stdout=list_output, stderr="")
+
+        monkeypatch.setattr(_cli, "run_cli", fake_run_cli)
+        monkeypatch.setattr(prune_command, "datetime", FixedDateTime)
+
+        assert duplicacy.main(["prune", "--config", str(tmp_path), "--snapshot-id", "vm"]) == 0
+        error = capsys.readouterr().err
+        assert (
+            "Prune command (not run): /fake/duplicacy prune -id vm -r 2-3 -r 5-6 -r 8\n"
+        ) in error
+        assert "-r 1" not in error and "-r 9" not in error
+
+    def test_prune_without_dry_run_prints_no_prune_command_without_revisions(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        fake_executable: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # No revisions at all: nothing can be pruned, so only the
+        # informational summary is printed.
+        (tmp_path / "repo").mkdir()
+        (tmp_path / "config.yaml").write_text("retentionPolicy:\n- age: 7d\n  frequency: 7d\n")
+
+        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> _cli.CliResult:
+            return _cli.CliResult(args=args_list, returncode=0, stdout="Storage set to /tmp/storage\n", stderr="")
+
+        monkeypatch.setattr(_cli, "run_cli", fake_run_cli)
+        monkeypatch.setattr(prune_command, "datetime", FixedDateTime)
+
+        assert duplicacy.main(["prune", "--config", str(tmp_path), "--snapshot-id", "vm"]) == 0
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "Prune command" not in captured.err
+        assert "No revisions to prune" in captured.err
+
+    def test_prune_without_dry_run_merges_all_ranges_into_one_command(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        fake_executable: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # The upstream -r flag is a StringSlice (repeats delete the union),
+        # so by default every pruned revision is one command with one -r
+        # argument per consecutive range — one setup cost, no parallel runs.
+        (tmp_path / "repo").mkdir()
+        (tmp_path / "config.yaml").write_text("retentionAnchor: today\nretentionPolicy:\n- age: 7d\n  frequency: 7d\n")
+        list_output = (
+            "Storage set to /tmp/storage\n"
+            "Snapshot vm revision 1 created at 2026-08-20 09:00\n"
+            "Snapshot vm revision 2 created at 2026-08-20 10:00\n"
+            "Snapshot vm revision 3 created at 2026-08-20 11:00\n"
+            "Snapshot vm revision 4 created at 2026-08-20 12:00\n"
+            "Snapshot vm revision 6 created at 2026-08-20 14:00\n"
+            "Snapshot vm revision 7 created at 2026-08-20 15:00\n"
+            "Snapshot vm revision 9 created at 2026-08-20 17:00\n"
+            "Snapshot vm revision 10 created at 2026-08-20 18:00\n"
+        )
+
+        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> _cli.CliResult:
+            return _cli.CliResult(args=args_list, returncode=0, stdout=list_output, stderr="")
+
+        monkeypatch.setattr(_cli, "run_cli", fake_run_cli)
+        monkeypatch.setattr(prune_command, "datetime", FixedDateTime)
+
+        assert duplicacy.main(["prune", "--config", str(tmp_path), "--snapshot-id", "vm"]) == 0
+        error = capsys.readouterr().err
+        assert error.endswith(
+            "Snapshot id: vm\n"
+            "Prune command (not run): /fake/duplicacy prune -id vm -r 2-4 -r 6-7 -r 9\n"
+        )
+
+    def test_prune_without_dry_run_splits_commands_at_the_range_limit(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        fake_executable: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # pruneMaxRangesPerCommand caps how many -r arguments merge into
+        # one command: with a limit of 2, the third and fourth ranges move
+        # to a second command.
+        (tmp_path / "repo").mkdir()
+        (tmp_path / "config.yaml").write_text(
+            "retentionAnchor: today\npruneMaxRangesPerCommand: 2\nretentionPolicy:\n- age: 7d\n  frequency: 7d\n"
+        )
+        list_output = (
+            "Storage set to /tmp/storage\n"
+            "Snapshot vm revision 1 created at 2026-08-20 09:00\n"
+            "Snapshot vm revision 2 created at 2026-08-20 10:00\n"
+            "Snapshot vm revision 3 created at 2026-08-20 11:00\n"
+            "Snapshot vm revision 4 created at 2026-08-20 12:00\n"
+            "Snapshot vm revision 6 created at 2026-08-20 14:00\n"
+            "Snapshot vm revision 7 created at 2026-08-20 15:00\n"
+            "Snapshot vm revision 9 created at 2026-08-20 17:00\n"
+            "Snapshot vm revision 10 created at 2026-08-20 18:00\n"
+        )
+
+        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> _cli.CliResult:
+            return _cli.CliResult(args=args_list, returncode=0, stdout=list_output, stderr="")
+
+        monkeypatch.setattr(_cli, "run_cli", fake_run_cli)
+        monkeypatch.setattr(prune_command, "datetime", FixedDateTime)
+
+        assert duplicacy.main(["prune", "--config", str(tmp_path), "--snapshot-id", "vm"]) == 0
+        error = capsys.readouterr().err
+        assert error.endswith(
+            "Snapshot id: vm\n"
+            "Prune command (not run): /fake/duplicacy prune -id vm -r 2-4 -r 6-7\n"
+            "Prune command (not run): /fake/duplicacy prune -id vm -r 9\n"
+        )
+
+    def test_prune_without_dry_run_rejects_zero_range_limit(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        fake_executable: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # The limit must be a positive integer: 0 or a negative value is
+        # rejected before the duplicacy CLI runs.
+        (tmp_path / "repo").mkdir()
+        (tmp_path / "config.yaml").write_text("pruneMaxRangesPerCommand: 0\n")
+
+        def fail_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> _cli.CliResult:
+            raise AssertionError("the duplicacy CLI should not run for an invalid range limit")
+
+        monkeypatch.setattr(_cli, "run_cli", fail_run_cli)
+
+        assert duplicacy.main(["prune", "--config", str(tmp_path), "--snapshot-id", "vm"]) == 1
+        assert "pruneMaxRangesPerCommand must be a positive integer" in capsys.readouterr().err
+
+    def test_prune_without_dry_run_rejects_non_integer_range_limit(
         self,
         tmp_path: Path,
         capsys: pytest.CaptureFixture[str],
@@ -429,16 +660,15 @@ class TestMain:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         (tmp_path / "repo").mkdir()
+        (tmp_path / "config.yaml").write_text("pruneMaxRangesPerCommand: many\n")
 
         def fail_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> _cli.CliResult:
-            raise AssertionError("prune should not run the duplicacy CLI without --dry-run")
+            raise AssertionError("the duplicacy CLI should not run for an invalid range limit")
 
         monkeypatch.setattr(_cli, "run_cli", fail_run_cli)
 
-        assert duplicacy.main(["prune", "--config", str(tmp_path), "--snapshot-id", "vm"]) == 0
-        captured = capsys.readouterr()
-        assert captured.out == ""
-        assert captured.err == ""
+        assert duplicacy.main(["prune", "--config", str(tmp_path), "--snapshot-id", "vm"]) == 1
+        assert "pruneMaxRangesPerCommand must be a positive integer" in capsys.readouterr().err
 
     def test_prune_picker_cancelled_returns_one(
         self,
