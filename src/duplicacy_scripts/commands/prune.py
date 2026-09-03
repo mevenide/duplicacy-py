@@ -4,12 +4,13 @@ and frequency grid ticks are aligned to midnight: the reference time is
 midnight of the day of the snapshot's latest revision (the default), or
 midnight of the current day with ``retentionAnchor: today``.
 
-The listing is the prune's dry run: it is printed only with ``--dry-run``.
-Without the flag the command prints the ``duplicacy prune`` commands that
-would delete the pruned revisions (to stderr; it never prunes itself). The
-retention policy and anchor are printed to stderr for the user's
-information before the snapshot id is chosen, the policy sorted latest to
-earliest, keeping stdout parse-only revision output."""
+Without ``--dry-run`` (or ``--analyze``) the command prunes: it runs the
+``duplicacy prune`` command(s) that delete the pruned revisions in the
+repository. ``--dry-run`` prints those commands instead (to stderr, marked
+"Would run"; nothing is pruned), and ``--analyze`` prints the bucketed
+kept/pruned listing instead. The retention policy and anchor are printed
+to stderr for the user's information before the snapshot id is chosen, the
+policy sorted latest to earliest, keeping stdout parse-only revision output."""
 
 from __future__ import annotations
 
@@ -88,23 +89,19 @@ def _select_snapshot_id(executable: str, repo) -> str | None:
     return select_option(message="Select a snapshot id:", choices=ids)
 
 
-def _print_prune_commands(executable: str, snapshot_id: str, pruned: set[int], max_ranges: int) -> None:
-    """Print the ``duplicacy prune`` commands that would delete ``pruned``.
+def _prune_command_args(snapshot_id: str, pruned: set[int], max_ranges: int) -> list[list[str]]:
+    """Return the duplicacy-prune argument lists that delete ``pruned``.
 
     All revisions merge into one command with one ``-r`` argument per
     consecutive range: the upstream CLI's ``-r`` flag is a string-slice
     flag (repeating it deletes the union, see ``getRevisions`` in
     ``duplicacy_main.go``), so a single invocation deletes everything with
-    one setup cost — one listing pass, one fossil collection — and singletons
-    stay ``-r <revision>``. ``max_ranges`` caps how many ``-r`` arguments a
-    command may carry; past it the remaining ranges spill into the next
-    command (the commands run sequentially, not in parallel). The commands
-    go to stderr so stdout stays parse-only, and they are only printed,
-    never run: without ``--dry-run`` the script reports what the real prune
-    would do, and running it is the user's decision. ``shlex.join`` quotes
-    the executable so paths with spaces stay copy-paste-safe on POSIX
-    shells (and read cleanly on Windows).
+    one setup cost — one listing pass, one fossil collection — and
+    singletons stay ``-r <revision>``. ``max_ranges`` caps how many ``-r``
+    arguments a command may carry; past it the remaining ranges spill into
+    the next command (the commands run sequentially, not in parallel).
     """
+    commands: list[list[str]] = []
     args: list[str] = []
     for group in _group_consecutive(sorted(pruned)):
         if len(group) == 1:
@@ -112,17 +109,51 @@ def _print_prune_commands(executable: str, snapshot_id: str, pruned: set[int], m
         else:
             revision_arg = f"{group[0]}-{group[-1]}"
         if len(args) >= 2 * max_ranges:
-            _print_prune_command(executable, snapshot_id, args)
+            commands.append(args)
             args = []
         args.extend(("-r", revision_arg))
     if args:
-        _print_prune_command(executable, snapshot_id, args)
+        commands.append(args)
+    return commands
 
 
-def _print_prune_command(executable: str, snapshot_id: str, args: list[str]) -> None:
-    """Print one ``duplicacy prune`` command line (to stderr, marked not run)."""
-    command = shlex.join([executable, "prune", "-id", snapshot_id, *args])
-    print(f"Prune command (not run): {command}", file=sys.stderr)
+def _print_prune_commands(executable: str, snapshot_id: str, pruned: set[int], max_ranges: int) -> None:
+    """Print the ``duplicacy prune`` commands that would delete ``pruned``.
+
+    The commands go to stderr so stdout stays parse-only, and they are
+    only printed, never run: ``--dry-run`` reports what the real prune
+    would do, and running it is the user's decision. ``shlex.join``
+    quotes the executable so paths with spaces stay copy-paste-safe on
+    POSIX shells (and read cleanly on Windows).
+    """
+    for args in _prune_command_args(snapshot_id, pruned, max_ranges):
+        command = shlex.join([executable, "prune", "-id", snapshot_id, *args])
+        print(f"Would run: {command}", file=sys.stderr)
+
+
+def _run_prune_commands(
+    executable: str,
+    snapshot_id: str,
+    pruned: set[int],
+    max_ranges: int,
+    repo,
+) -> int:
+    """Run the ``duplicacy prune`` commands that delete ``pruned``.
+
+    One command per up-to-``max_ranges``-range batch, in order (the
+    commands run sequentially, not in parallel). Duplicacy's own
+    diagnostics are forwarded to stderr so stdout stays parse-only; a
+    failing command reports the error and stops the run (exit 1).
+    """
+    commands = _prune_command_args(snapshot_id, pruned, max_ranges)
+    for args in commands:
+        try:
+            result = _cli.run_cli([executable, "prune", "-id", snapshot_id, *args], cwd=repo)
+        except _cli.CliError as exc:
+            print(exc, file=sys.stderr)
+            return 1
+        _print_duplicacy_stderr(result.stderr)
+    return 0
 
 
 def _group_consecutive(sorted_revisions: list[int]) -> list[list[int]]:
@@ -170,7 +201,7 @@ def _print_bucketed_revisions(
 
 def add_parser(subparsers: argparse._SubParsersAction) -> None:
     """Declare the ``prune`` subcommand and its arguments."""
-    parser = subparsers.add_parser("prune", help="print what the prune command would do if it ran")
+    parser = subparsers.add_parser("prune", help="prune revisions per the retention policy")
     _cli.add_config_argument(parser)
     parser.add_argument(
         "--snapshot-id",
@@ -178,18 +209,25 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
         help="snapshot id to list revisions for (interactive picker when omitted)",
     )
     parser.add_argument(
+        "--analyze",
+        action="store_true",
+        help="print the prune preview (the bucketed kept/pruned listing) instead of pruning",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="print the prune preview (without it, print the duplicacy prune commands that would run)",
+        help="print (to stderr, never running) the duplicacy prune command(s) that would prune the pruned revisions",
     )
 
 
 def run(args: argparse.Namespace) -> int:
-    """Print what the prune would do for the chosen snapshot id.
+    """Prune the chosen snapshot id per the retention policy.
 
-    With ``--dry-run`` that is the bucketed kept/pruned listing; without
-    it, the ``duplicacy prune`` commands that would delete the pruned
-    revisions (printed, not run).
+    Without ``--dry-run`` (or ``--analyze``) the ``duplicacy prune``
+    command(s) that delete the pruned revisions run in the repository;
+    ``--dry-run`` prints them instead without running, and ``--analyze``
+    prints the bucketed kept/pruned listing instead. Nothing is pruned
+    with either flag.
     """
     executable, repo = _cli.prepare_repo(args.config)
     # load_retention_policy validates the whole policy (unparsable,
@@ -228,23 +266,23 @@ def run(args: argparse.Namespace) -> int:
         now = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     else:
         now = revisions[-1].created_at.replace(hour=0, minute=0, second=0, microsecond=0)
-    if not args.dry_run:
-        # Without the flag only the commands that would prune revisions
-        # are wanted: duplicacy deletes the union of every ``-r``
-        # argument, so the ranges merge into one command (up to the
-        # configured ``pruneMaxRangesPerCommand`` cap), computed from the
-        # same classification the dry run displays.
-        _, pruned = select_revisions(revisions, policy, now)
-        if pruned:
-            _print_prune_commands(executable, snapshot_id, pruned, max_ranges)
-        else:
-            print("No revisions to prune", file=sys.stderr)
+    if args.analyze:
+        policy_buckets = buckets(policy, now)
+        if not policy_buckets:
+            for revision in revisions:
+                print(f"{revision.revision} created at {revision.created_at:%Y-%m-%d %H:%M}")
+            return 0
+        kept, pruned = select_revisions(revisions, policy, now)
+        _print_bucketed_revisions(revisions, policy_buckets, kept, pruned)
         return 0
-    policy_buckets = buckets(policy, now)
-    if not policy_buckets:
-        for revision in revisions:
-            print(f"{revision.revision} created at {revision.created_at:%Y-%m-%d %H:%M}")
+    _, pruned = select_revisions(revisions, policy, now)
+    if not pruned:
+        print("No revisions to prune", file=sys.stderr)
         return 0
-    kept, pruned = select_revisions(revisions, policy, now)
-    _print_bucketed_revisions(revisions, policy_buckets, kept, pruned)
-    return 0
+    if args.dry_run:
+        # Only the commands that would prune revisions are wanted: they
+        # are printed to stderr (shlex-joined, copy-paste-safe) instead of
+        # run, computed from the same classification --analyze displays.
+        _print_prune_commands(executable, snapshot_id, pruned, max_ranges)
+        return 0
+    return _run_prune_commands(executable, snapshot_id, pruned, max_ranges, repo)

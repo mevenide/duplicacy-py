@@ -19,10 +19,11 @@ are in `src/duplicacy_scripts/`, with tests in `tests/`.
   configured in `~/.config/duplicacy-py/repo/.duplicacy/preferences` (snapshot
   id `duplicacy-py-dummy`). `uv run duplicacy-py prune --dry-run --snapshot-id
   Jenna3_user_savegames` from the repo root exercises the full path for real
-  (without `--dry-run`, prune only prints the duplicacy prune command(s)
-  that would delete the pruned revisions, to stderr — one command with one
-  `-r <start-end>` per consecutive revision run, capped by the
-  `pruneMaxRangesPerCommand` config key, default 64; it never prunes).
+  (--dry-run only prints the duplicacy prune command(s) that would delete
+  the pruned revisions, to stderr — one command with one `-r <start-end>`
+  per consecutive revision run, capped by the `pruneMaxRangesPerCommand`
+  config key, default 64; --analyze only prints the bucketed kept/pruned
+  listing; with no flag those commands actually run).
 - If a stub is still needed, create a shell script that echoes plausible output
   and point the script at it via `DUPLICACY_EXECUTABLE` or a `.env` file (the
   stub receives the CLI args as `$*`; its stdout is what the script prints).

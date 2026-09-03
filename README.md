@@ -13,7 +13,7 @@ Run the installed CLI with a command:
 ```sh
 uv run duplicacy-py backup
 uv run duplicacy-py list
-uv run duplicacy-py prune [--dry-run] --snapshot-id <snapshot id>
+uv run duplicacy-py prune [--analyze|--dry-run] --snapshot-id <snapshot id>
 uv run duplicacy-py config init --storage <storage url>
 uv run duplicacy-py config var duplicacy=/path/to/duplicacy
 uv run duplicacy-py config retention-policy add --age 7d --frequency 1h
@@ -25,48 +25,54 @@ The available commands are:
   configuration directory.
 - `list` prints the snapshot ids found in the repository (one per line,
   sorted, duplicates removed).
-- `prune [--dry-run] [--snapshot-id <snapshot id>]` prints what the prune
-  command would do if it ran; it never prunes itself. Without `--dry-run`,
-  it prints the `duplicacy prune` command(s) that would delete the pruned
-  revisions (to stderr, as
-  `Prune command (not run): <executable> prune -id <id> -r <start-end> ...` —
-  by default one command carrying one `-r <start-end>` argument per
-  consecutive run of pruned revisions, singletons as `-r <revision>`; the
-  upstream CLI deletes the union of all `-r` arguments), or `No revisions to
-  prune` when the retention policy keeps everything; the commands are
-  printed, not run. The `pruneMaxRangesPerCommand` configuration key
-  (default 64) caps how many `-r` arguments merge into one command; past
-  it the remaining ranges spill into additional commands (printed in
-  order; run them sequentially, not in parallel). With `--dry-run`, it
-  lists the revisions for the supplied snapshot id, parsed
-  from the `duplicacy list` output, running in the `repo`
-  subdirectory of the configuration directory. When the `retentionPolicy`
-  configuration key contains ages, the revisions are grouped under retention
-  buckets (see below): one chronological header per bucket,
-  `Bucket <index>: [<start>, <end>)` (ends exclusive; `the beginning` and
-  `now` for the unbounded outermost buckets), with the revisions of that
-  bucket printed as a small table underneath — a
-  `revision | created | kept/pruned` header followed by one row per revision
-  (`<revision> | <YYYY-MM-DD HH:MM> | kept|pruned`; the revision column is
-  right-aligned to one width for the whole listing): the retention policy
-  selects one revision per frequency timestamp (marked `kept`) and the rest
-  are marked `pruned`. Without a retention policy, the revisions are
-  printed as before (one per line, sorted by revision number). An invalid
-  retention policy (unparsable or non-positive age, duplicate ages, or an
-  unparsable, non-positive, or unsupported frequency) or an unknown
-  `retentionAnchor` value (see below) exits with an error
-  before the duplicacy CLI runs. The retention policy and anchor are printed
+- `prune [--analyze|--dry-run] [--snapshot-id <snapshot id>]` prunes the revisions the
+  retention policy classifies as pruned, in the `repo` subdirectory of the
+  configuration directory. The retention policy and anchor are printed
   to stderr for the user's information before the snapshot id is chosen (the
   policy one indexed line per entry, sorted latest to earliest by parsed age
   with each entry's configuration index, or `Retention policy: none (all
-  revisions are kept)` without one), a `--snapshot-id` passed on the command
-  line is echoed to stderr instead of asking (in both modes, and the prune
-  commands are preceded by the echo too), and when `--snapshot-id` is
+  revisions are kept)` without one), and a `--snapshot-id` passed on the
+  command line is echoed to stderr instead of asking; when `--snapshot-id` is
   omitted and stdin is interactive, an up/down arrow picker (with Enter to
   select) offers the snapshot ids found in the repository; when stdin is not
   interactive, it lists the available ids and exits with an error. All of
   this informational output goes to stderr so stdout stays parse-only
-  revision output.
+  revision output. What happens next depends on the flags:
+
+  - With no flag, the `duplicacy prune` command(s) that delete the pruned
+    revisions actually run in the repository (sequential, one command per
+    batch — see `pruneMaxRangesPerCommand` below), with duplicacy's own
+    diagnostics forwarded to stderr; a failing command reports the error and
+    stops the run.
+  - With `--dry-run`, those commands are printed instead (to stderr,
+    never run, as
+    `Would run: <executable> prune -id <id> -r <start-end> ...`),
+    or `No revisions to prune` when the retention policy keeps everything.
+  - With `--analyze`, it prints what the prune would prune instead: it lists
+    the revisions for the supplied snapshot id,
+    parsed from the `duplicacy list` output. When the `retentionPolicy`
+    configuration key contains ages, the revisions are grouped under retention
+    buckets (see below): one chronological header per bucket,
+    `Bucket <index>: [<start>, <end>)` (ends exclusive; `the beginning` and
+    `now` for the unbounded outermost buckets), with the revisions of that
+    bucket printed as a small table underneath — a
+    `revision | created | kept/pruned` header followed by one row per revision
+    (`<revision> | <YYYY-MM-DD HH:MM> | kept|pruned`; the revision column is
+    right-aligned to one width for the whole listing): the retention policy
+    selects one revision per frequency timestamp (marked `kept`) and the rest
+    are marked `pruned`. Without a retention policy, the revisions are
+    printed as before (one per line, sorted by revision number).
+
+  The commands (printed or run) carry one `-r <start-end>` argument per
+  consecutive run of pruned revisions, singletons as `-r <revision>`; the
+  upstream CLI deletes the union of all `-r` arguments. The
+  `pruneMaxRangesPerCommand` configuration key (default 64) caps how many
+  `-r` arguments merge into one command; past it the remaining ranges spill
+  into additional commands (in order; run them sequentially, not in
+  parallel). An invalid retention policy (unparsable or non-positive age,
+  duplicate ages, or an unparsable, non-positive, or unsupported frequency)
+  or an unknown `retentionAnchor` value (see below) exits with an error
+  before the duplicacy CLI runs.
 - `config init --storage <storage url>` creates the configuration file and
   initializes a duplicacy repository in the `repo` subdirectory of the
   configuration directory (snapshot id: `duplicacy-py-dummy`). An existing
