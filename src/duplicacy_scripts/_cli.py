@@ -98,7 +98,7 @@ def load_config(config_dir: str | os.PathLike[str] | None = None) -> dict:
     with path.open() as config_stream:
         configuration = yaml.safe_load(config_stream) or {}
     if not isinstance(configuration, dict):
-        raise TypeError("configuration must contain a YAML mapping")
+        raise TypeError(f"{path}: configuration must contain a YAML mapping")
     return configuration
 
 
@@ -125,12 +125,13 @@ def load_retention_policy(config_dir: str | os.PathLike[str] | None = None) -> l
     raises ``TypeError``, and an invalid policy (unparsable or non-positive
     age or frequency, or duplicate ages) raises ``ValueError``.
     """
+    path = config_file(config_dir)
     policy = load_config(config_dir).get("retentionPolicy", [])
     if not isinstance(policy, list) or any(
         not isinstance(entry, dict) or "age" not in entry or "frequency" not in entry
         for entry in policy
     ):
-        raise TypeError("retentionPolicy must contain a list of {age, frequency} mappings")
+        raise TypeError(f"{path}: retentionPolicy must contain a list of {{age, frequency}} mappings")
     entries = [{"age": str(entry["age"]), "frequency": str(entry["frequency"])} for entry in policy]
     validate_retention_policy(entries)
     return entries

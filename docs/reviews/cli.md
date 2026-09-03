@@ -136,7 +136,7 @@ captured stderr to stderr when non-empty; stdout stays parse-only. Guarded by
 a regression test in `TestMain` asserting the captured stderr reaches the
 user while stdout stays empty. Full suite: 178 passed.
 
-### F4. `load_retention_policy` maps a non-list policy to `TypeError` with a generic message (Low)
+### ✅ F4. `load_retention_policy` maps a non-list policy to `TypeError` with a generic message (Low) — RESOLVED
 
 `_cli.load_retention_policy` raises `TypeError` for a non-list
 `retentionPolicy`, but the error message ("retentionPolicy must contain a list
@@ -146,9 +146,15 @@ which also lacks the path. Since all command handlers print these exceptions
 verbatim, including the config path in the message would make misconfiguration
 self-explanatory:
 
-```python
-raise TypeError(f"{path}: retentionPolicy must contain a list of {{age, frequency}} mappings")
-```
+Resolved 2026-09-03: applied the suggested fix — both messages now prefix the
+configuration file path: `load_config` raises
+`f"{path}: configuration must contain a YAML mapping"` and
+`load_retention_policy` raises
+`f"{path}: retentionPolicy must contain a list of {{age, frequency}} mappings"`
+(the doubled braces keep the literal `{age, frequency}` in the f-string).
+Guarded by strengthened assertions in the two `TestRetentionPolicy`
+`TypeError` tests and `test_load_config_rejects_non_mapping`, all asserting
+the config path appears in the message. Full suite: 178 passed.
 
 ### F5. `config var` accepts empty-ish names/values inconsistently (Low)
 
@@ -207,8 +213,7 @@ timestamps, the retention math shifts. No action needed now; the docstring in
 1. ✅ F1 and F2 were fixed on 2026-09-03 (see their Resolved notes).
 2. ✅ F3 was fixed on 2026-09-03 (see its Resolved note, which corrects the
    original stderr claim — upstream logs diagnostics on stdout).
-3. Add `ruff` to the dev dependencies and a minimal config; the codebase is
-   already consistent enough that it will pass with few suppressions.
+3. ✅ F4 was fixed on 2026-09-03 (see its Resolved note).
 4. Consider a short "Troubleshooting" section in the README covering the
    fixed-but-worth-documenting failure mode "resolved executable does not
    exist" since it is the most likely first-run failure for new users.

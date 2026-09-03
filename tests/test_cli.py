@@ -59,8 +59,10 @@ class TestConfig:
 
     def test_load_config_rejects_non_mapping(self, tmp_path: Path) -> None:
         (tmp_path / "config.yaml").write_text("- just\n- a\n- list\n")
-        with pytest.raises(TypeError):
+        with pytest.raises(TypeError) as excinfo:
             load_config(tmp_path)
+        # The message names the offending configuration file.
+        assert str(tmp_path / "config.yaml") in str(excinfo.value)
 
 
 class TestRetentionPolicy:
@@ -83,13 +85,16 @@ class TestRetentionPolicy:
 
     def test_rejects_non_list_policy(self, tmp_path: Path) -> None:
         (tmp_path / "config.yaml").write_text("retentionPolicy: 7d\n")
-        with pytest.raises(TypeError):
+        with pytest.raises(TypeError) as excinfo:
             load_retention_policy(tmp_path)
+        # The message names the offending configuration file.
+        assert str(tmp_path / "config.yaml") in str(excinfo.value)
 
     def test_rejects_entry_without_frequency(self, tmp_path: Path) -> None:
         (tmp_path / "config.yaml").write_text("retentionPolicy:\n- age: 7d\n")
-        with pytest.raises(TypeError):
+        with pytest.raises(TypeError) as excinfo:
             load_retention_policy(tmp_path)
+        assert str(tmp_path / "config.yaml") in str(excinfo.value)
 
     def test_load_rejects_duplicate_ages(self, tmp_path: Path) -> None:
         (tmp_path / "config.yaml").write_text(
