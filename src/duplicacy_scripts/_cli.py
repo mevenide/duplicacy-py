@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from dotenv import load_dotenv
+from dotenv import find_dotenv, load_dotenv
 from platformdirs import user_config_dir
 import yaml
 
@@ -58,9 +58,16 @@ def load_env(env_file: str | os.PathLike[str] | None = None) -> None:
     """Load variables from a ``.env`` file into the environment.
 
     Real environment variables always win over the file. By default the
-    ``.env`` file in the current directory is used if it exists; pass an
-    explicit path to load a different file.
+    ``.env`` file in the current directory (or its nearest parent that has
+    one) is used if it exists; pass an explicit path to load a different
+    file.
     """
+    if env_file is None:
+        # find_dotenv(usecwd=True) anchors the walk-up at the working
+        # directory; load_dotenv's implicit find_dotenv() anchors at this
+        # module's location instead, so a console script would skip a
+        # .env next to the user's data and find an unrelated one.
+        env_file = find_dotenv(usecwd=True)
     load_dotenv(env_file, override=False)
 
 

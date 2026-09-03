@@ -149,8 +149,8 @@ Scripts are written to work on Windows as well as POSIX. The duplicacy
 executable is resolved in this order:
 
 1. The `DUPLICACY_EXECUTABLE` environment variable, or the same variable loaded
-   from a `.env` file in the working directory (real environment variables win
-   over `.env` values).
+   from a `.env` file in the working directory or its nearest parent that has
+   one (real environment variables win over `.env` values).
 2. The `duplicacy` key in `config.yaml`, e.g.:
 
    ```

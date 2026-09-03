@@ -12,7 +12,7 @@ shell, `CliError` -> exit code 1), the module docstrings are accurate and
 unusually detailed, and the test suite is strong (172 tests pass in ~0.6s).
 Findings below are ranked; F1 is a real, reproducible behavior bug, F2 is a
 robustness gap worth fixing, the rest are minor or informational. No blocking
-issues.
+issues. ✅ F1 has since been fixed (see its Resolved note).
 
 ## Strengths
 
@@ -37,7 +37,7 @@ issues.
 
 ## Findings
 
-### F1. Working-directory `.env` is not loaded by the installed console script (High)
+### ✅ F1. Working-directory `.env` is not loaded by the installed console script (High) — RESOLVED
 
 `_cli.load_env()` calls `load_dotenv(None)`. When no path is given,
 python-dotenv's `find_dotenv()` walks up **from the caller's file location**
@@ -58,17 +58,25 @@ skipped, while an unrelated `.env` (this repo's own, or one higher up in the
 package path) wins. That contradicts the README ("a `.env` file in the working
 directory") and the AGENTS.md contract for `load_env()`.
 
-Suggested fix (one line, matching the documented semantics):
+Resolved 2026-09-03: `load_env()` now calls `find_dotenv(usecwd=True)` and
+passes the resolved path to `load_dotenv`. The originally suggested one-liner
+(`load_dotenv(env_file, override=False, usecwd=True)`) was not possible as
+written: `load_dotenv()` has no `usecwd` parameter and calls `find_dotenv()`
+internally with its defaults, so the explicit `find_dotenv` call is required.
+Discovery now anchors at the working directory and walks up
+to the nearest parent `.env` (an explicit path argument is still forwarded
+unchanged), and the README documents the nearest-parent walk-up.
 
-```python
-load_dotenv(env_file, override=False, usecwd=True)
-```
-
-Keep in mind `usecwd=True` also changes behavior for direct module users
-(consistent with the docs, though). A regression test should run the *console
-script* (or `main.main`) from a tmp cwd with a `.env` — stubbing at the
-`_cli.load_env` level will not catch this, since the bug lives inside
-python-dotenv's caller-frame logic.
+Guarded by three regression tests in `tests/test_cli.py` (`TestLoadEnv`) that
+exercise the real, unstubbed `load_env()` — per the note above, stubbing at
+`_cli.load_env` cannot catch this class of bug: the cwd `.env` is used, the
+walk-up finds the nearest parent's `.env`, and no `.env` anywhere leaves the
+environment untouched. Verified end to end with the console script: from a
+scratch cwd whose `.env` points at `/bin/false`, `duplicacy-py list` now
+fails with `/bin/false failed with exit code 1` (previously it ignored the
+cwd `.env` and ran the real binary); walk-up from a nested subdirectory
+works; and `uv run duplicacy-py list` from the repo root still resolves the
+real binary. Full suite: 175 passed.
 
 ### F2. `FileNotFoundError` from `subprocess.run` escapes as a traceback (High)
 
@@ -175,8 +183,8 @@ timestamps, the retention math shifts. No action needed now; the docstring in
 
 ## Suggestions (non-blocking, ordered)
 
-1. Fix F1 (`usecwd=True`) and F2 (`OSError` → `CliError`); both are small and
-   testable. Add a console-script-level regression test for F1.
+1. F1 was fixed on 2026-09-03 (see its Resolved note). Remaining: F2
+   (`OSError` → `CliError` in `run_cli`), which is small and testable.
 2. Optionally forward captured stderr in `prune` (F3) or document the omission.
 3. Add `ruff` to the dev dependencies and a minimal config; the codebase is
    already consistent enough that it will pass with few suppressions.
