@@ -95,17 +95,27 @@ def _print_bucketed_revisions(
     """Print revisions grouped under their retention bucket headers.
 
     Buckets are printed in chronological order; empty buckets get a header
-    with no revisions under them. Each revision is marked ``kept`` when the
-    retention policy selects it and ``pruned`` otherwise.
+    with no revisions under them. Each bucket's revisions print as a small
+    table, ``revision | created | kept/pruned``, with the revision column
+    right-aligned to one width for the whole listing so the tables line up
+    across buckets; each revision is marked ``kept`` when the retention
+    policy selects it and ``pruned`` otherwise.
     """
+    # The header ``revision`` is the minimum width, so the column stays as
+    # wide as its caption even for single-digit revision numbers (and the
+    # max keeps working for a snapshot id with no revisions at all).
+    revision_width = max([len("revision"), *(len(str(revision.revision)) for revision in revisions)])
     for index, bucket in enumerate(policy_buckets):
         start = bucket.start.strftime(BUCKET_TIME_FORMAT) if bucket.start else "the beginning"
         end = bucket.end.strftime(BUCKET_TIME_FORMAT) if bucket.end else "now"
         print(f"Bucket {index}: [{start}, {end})")
-        for revision in revisions:
-            if bucket.contains(revision.created_at):
-                state = "kept" if revision.revision in kept else "pruned"
-                print(f"{revision.revision} created at {revision.created_at:%Y-%m-%d %H:%M} {state}")
+        rows = [revision for revision in revisions if bucket.contains(revision.created_at)]
+        if not rows:
+            continue
+        print(f"{'revision':>{revision_width}} | {'created':<16} | kept/pruned")
+        for revision in rows:
+            state = "kept" if revision.revision in kept else "pruned"
+            print(f"{revision.revision:>{revision_width}} | {revision.created_at:%Y-%m-%d %H:%M} | {state}")
 
 
 def add_parser(subparsers: argparse._SubParsersAction) -> None:

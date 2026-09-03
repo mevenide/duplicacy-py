@@ -34,10 +34,12 @@ The available commands are:
   buckets (see below): one chronological header per bucket,
   `Bucket <index>: [<start>, <end>)` (ends exclusive; `the beginning` and
   `now` for the unbounded outermost buckets), with the revisions of that
-  bucket printed as `<revision> created at <YYYY-MM-DD HH:MM> kept|pruned`
-  underneath: the retention policy selects one revision per frequency
-  timestamp (marked `kept`) and the rest are marked `pruned`; empty buckets
-  print only their header. Without a retention policy, the revisions are
+  bucket printed as a small table underneath — a
+  `revision | created | kept/pruned` header followed by one row per revision
+  (`<revision> | <YYYY-MM-DD HH:MM> | kept|pruned`; the revision column is
+  right-aligned to one width for the whole listing): the retention policy
+  selects one revision per frequency timestamp (marked `kept`) and the rest
+  are marked `pruned`. Without a retention policy, the revisions are
   printed as before (one per line, sorted by revision number). An invalid
   retention policy (unparsable or non-positive age, duplicate ages, or an
   unparsable, non-positive, or unsupported frequency) or an unknown

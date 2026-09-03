@@ -530,11 +530,14 @@ class TestMain:
         assert duplicacy.main(["prune", "--dry-run", "--config", str(tmp_path), "--snapshot-id", "vm"]) == 0
         assert capsys.readouterr().out == (
             "Bucket 0: [the beginning, 2026-08-25 00:00)\n"
-            "1 created at 2026-08-20 10:00 kept\n"
+            "revision | created          | kept/pruned\n"
+            "       1 | 2026-08-20 10:00 | kept\n"
             "Bucket 1: [2026-08-25 00:00, 2026-08-31 00:00)\n"
-            "2 created at 2026-08-30 09:00 kept\n"
+            "revision | created          | kept/pruned\n"
+            "       2 | 2026-08-30 09:00 | kept\n"
             "Bucket 2: [2026-08-31 00:00, now)\n"
-            "3 created at 2026-09-01 11:00 kept\n"
+            "revision | created          | kept/pruned\n"
+            "       3 | 2026-09-01 11:00 | kept\n"
         )
 
     def test_prune_prints_empty_buckets_without_revisions(
@@ -560,7 +563,8 @@ class TestMain:
         assert duplicacy.main(["prune", "--dry-run", "--config", str(tmp_path), "--snapshot-id", "vm"]) == 0
         assert capsys.readouterr().out == (
             "Bucket 0: [the beginning, 2026-08-31 00:00)\n"
-            "5 created at 2026-08-01 10:00 kept\n"
+            "revision | created          | kept/pruned\n"
+            "       5 | 2026-08-01 10:00 | kept\n"
             "Bucket 1: [2026-08-31 00:00, now)\n"
         )
 
@@ -596,9 +600,10 @@ class TestMain:
         assert duplicacy.main(["prune", "--dry-run", "--config", str(tmp_path), "--snapshot-id", "vm"]) == 0
         assert capsys.readouterr().out == (
             "Bucket 0: [the beginning, 2026-08-25 00:00)\n"
-            "1 created at 2026-08-24 10:00 kept\n"
-            "2 created at 2026-08-24 11:00 pruned\n"
-            "3 created at 2026-08-24 14:00 kept\n"
+            "revision | created          | kept/pruned\n"
+            "       1 | 2026-08-24 10:00 | kept\n"
+            "       2 | 2026-08-24 11:00 | pruned\n"
+            "       3 | 2026-08-24 14:00 | kept\n"
             "Bucket 1: [2026-08-25 00:00, now)\n"
         )
 
@@ -632,9 +637,10 @@ class TestMain:
         assert capsys.readouterr().out == (
             "Bucket 0: [the beginning, 2026-08-17 00:00)\n"
             "Bucket 1: [2026-08-17 00:00, now)\n"
-            "1 created at 2026-08-24 10:00 kept\n"
-            "2 created at 2026-08-24 11:00 kept\n"
-            "3 created at 2026-08-24 14:00 kept\n"
+            "revision | created          | kept/pruned\n"
+            "       1 | 2026-08-24 10:00 | kept\n"
+            "       2 | 2026-08-24 11:00 | kept\n"
+            "       3 | 2026-08-24 14:00 | kept\n"
         )
 
     def test_prune_returns_one_on_invalid_retention_anchor(
