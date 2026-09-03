@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from types import SimpleNamespace
-from datetime import datetime
 
 import pytest
 
@@ -42,8 +41,6 @@ class TestBuckets:
         ]
 
     def test_policy_order_does_not_matter(self) -> None:
-        week = datetime(2026, 8, 25, 12, 0)
-        day = datetime(2026, 8, 31, 12, 0)
         assert buckets([{"age": "7d", "frequency": "1h"}, {"age": "1d", "frequency": "1h"}], NOW) == buckets(
             [{"age": "1d", "frequency": "1h"}, {"age": "7d", "frequency": "1h"}], NOW
         )

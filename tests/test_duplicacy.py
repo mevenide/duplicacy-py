@@ -16,7 +16,6 @@ from duplicacy_scripts import _cli
 from duplicacy_scripts import main as duplicacy
 from duplicacy_scripts.commands import prune as prune_command
 
-
 FAKE_DUPLICACY = "/fake/duplicacy"
 
 
@@ -191,7 +190,13 @@ class TestMain:
     @pytest.mark.parametrize(
         ("argv", "expected_args", "output", "printed", "cwd_name"),
         [
-            (["backup", "--config", "/tmp/settings"], ["backup"], "Backup complete\n", "Backup complete\n", "/tmp/settings/repo"),
+            (
+                ["backup", "--config", "/tmp/settings"],
+                ["backup"],
+                "Backup complete\n",
+                "Backup complete\n",
+                "/tmp/settings/repo",
+            ),
             (
                 ["prune", "--config", "/tmp/settings", "--snapshot-id", "vm"],
                 ["list", "-id", "vm"],

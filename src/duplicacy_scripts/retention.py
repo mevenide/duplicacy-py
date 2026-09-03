@@ -203,8 +203,9 @@ def select_revisions(
     # Bucket i ends at now - ages_desc[i], so pair the chronological buckets
     # with the entries sorted by descending age; thin from the newest bucket
     # backwards so each bucket sees what the later bucket keeps at their
-    # shared boundary before it is thinned itself.
-    for bucket, age in reversed(list(zip(policy_buckets[:-1], sorted(frequencies, reverse=True)))):
+    # shared boundary before it is thinned itself. strict=True guarantees
+    # the bucket list stays aligned with the descending-age entries.
+    for bucket, age in reversed(list(zip(policy_buckets[:-1], sorted(frequencies, reverse=True), strict=True))):
         in_bucket = [revision for revision in revisions if bucket.contains(revision.created_at)]
         if not in_bucket:
             continue

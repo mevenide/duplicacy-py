@@ -13,9 +13,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+import yaml
 from dotenv import find_dotenv, load_dotenv
 from platformdirs import user_config_dir
-import yaml
 
 from duplicacy_scripts.retention import validate_retention_policy
 

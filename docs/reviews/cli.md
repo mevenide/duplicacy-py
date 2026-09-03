@@ -193,7 +193,7 @@ explains that timestamps are parsed as naive local times matching the
 would shift if upstream ever emits timezone-aware or UTC timestamps).
 Behavior is unchanged; the full suite still passes (181 passed).
 
-### F7. Type-checking imports and minor polish (Informational)
+### ✅ F7. Type-checking imports and minor polish (Informational) — RESOLVED
 
 - `retention.py` guards the `_cli.Revision` import under `TYPE_CHECKING` — good
   — but `select_revisions` accepts any duck-typed revision (tests pass
@@ -205,6 +205,23 @@ Behavior is unchanged; the full suite still passes (181 passed).
 - No linters/type checkers are configured at all. Adding `ruff` (and optionally
   `pyright`) to the dev group with the existing conventions would catch the
   F5-class issues mechanically.
+
+Resolved 2026-09-03: applied the polish and added the tooling. `COMMANDS` in
+`commands/__init__.py` is now typed
+`dict[str, tuple[Callable[[argparse._SubParsersAction], None], Callable[[argparse.Namespace], int]]]`
+(the review's suggested tighter annotation). `ruff>=0.8` joined the dev
+dependency group with a minimal `[tool.ruff]` config (`line-length = 120`,
+target py312, rules `E/F/W/I/UP/B`); the initial run found 24 issues (13
+missing final newlines, 4 unsorted import blocks, 2 unused test variables,
+3 overlong lines) — 17 auto-fixed, the remaining 7 fixed by hand: unused
+`week`/`day` variables in `test_policy_order_does_not_matter` removed, the
+dispatch loop variable in `main.parse_args` renamed to `_run` (B007),
+`strict=True` added to the bucket/age `zip` in `retention.select_revisions`
+(B905, behavior-neutral alignment guarantee), and three long test lines
+reformatted. `uv run ruff check src tests` passes clean; `uv run pytest -q`
+still 181 passed. Pyright was not added — out of scope for an informational
+finding, and the duck-typed revision protocol is intentional (tests pass
+`SimpleNamespace` stand-ins).
 
 ## Verified behavior (evidence)
 
@@ -236,4 +253,5 @@ Behavior is unchanged; the full suite still passes (181 passed).
 5. ✅ F6 was addressed on 2026-09-03 by documenting the naive-local-time
    assumption at the parsing site (see its Resolved note; the review itself
    said no code change was needed).
-6. F7: see its Resolved note (ruff/pyright added; annotations tightened).
+6. ✅ F7 was fixed on 2026-09-03 (see its Resolved note; pyright was
+   intentionally not added).

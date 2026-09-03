@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import shutil
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -266,7 +266,9 @@ class TestLoadEnv:
         load_env()
         assert resolve_executable() == "/from/cwd/env"
 
-    def test_no_argument_walks_up_to_nearest_parent_env_file(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_no_argument_walks_up_to_nearest_parent_env_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.delenv("DUPLICACY_EXECUTABLE", raising=False)
         (tmp_path / ".env").write_text("DUPLICACY_EXECUTABLE=/from/parent/env\n")
         subdir = tmp_path / "data" / "repo"
@@ -275,7 +277,9 @@ class TestLoadEnv:
         load_env()
         assert resolve_executable() == "/from/parent/env"
 
-    def test_no_argument_without_any_env_file_leaves_environment_alone(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_no_argument_without_any_env_file_leaves_environment_alone(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.delenv("DUPLICACY_EXECUTABLE", raising=False)
         monkeypatch.chdir(tmp_path)
         load_env()
