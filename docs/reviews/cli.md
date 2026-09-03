@@ -156,7 +156,7 @@ Guarded by strengthened assertions in the two `TestRetentionPolicy`
 `TypeError` tests and `test_load_config_rejects_non_mapping`, all asserting
 the config path appears in the message. Full suite: 178 passed.
 
-### F5. `config var` accepts empty-ish names/values inconsistently (Low)
+### ✅ F5. `config var` accepts empty-ish names/values inconsistently (Low) — RESOLVED
 
 `_run_var` rejects `NAME=` and `=VALUE` and a missing `=`, but a name of
 `" "` (whitespace) or a value containing newlines is accepted and written to
@@ -164,6 +164,15 @@ YAML. Values are safe (YAML quoting handles them), but a whitespace name
 creates keys that can never be resolved deliberately. A `.strip()`-based check
 on the name (and maybe rejecting newlines in the name) would close it. Cosmetic
 severity; the current behavior never corrupts the file.
+
+Resolved 2026-09-03: `_run_var` now rejects (exit code 1, nothing written) a
+whitespace-only or padded variable name (message: "Configuration variable
+name must not be empty or contain surrounding whitespace") and a name
+containing newlines ("Configuration variable name must not contain
+newlines"). Values remain accepted as before — YAML quoting handles them
+safely. Guarded by three regression tests (whitespace-only name, padded
+name, newline in name), each also asserting the config file is not created.
+Full suite: 181 passed.
 
 ### F6. `revision` timestamps are parsed as naive local times (Informational)
 
@@ -214,6 +223,4 @@ timestamps, the retention math shifts. No action needed now; the docstring in
 2. ✅ F3 was fixed on 2026-09-03 (see its Resolved note, which corrects the
    original stderr claim — upstream logs diagnostics on stdout).
 3. ✅ F4 was fixed on 2026-09-03 (see its Resolved note).
-4. Consider a short "Troubleshooting" section in the README covering the
-   fixed-but-worth-documenting failure mode "resolved executable does not
-   exist" since it is the most likely first-run failure for new users.
+4. ✅ F5 was fixed on 2026-09-03 (see its Resolved note).

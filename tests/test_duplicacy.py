@@ -634,6 +634,23 @@ class TestMain:
         assert duplicacy.main(["config", "var", "--config", str(tmp_path), "duplicacy"]) == 1
         assert "NAME=VALUE" in capsys.readouterr().err
 
+    def test_rejects_whitespace_only_variable_name(self, tmp_path, capsys) -> None:
+        # Regression test: a whitespace-only or padded name could never be
+        # resolved deliberately afterwards, but it used to be saved anyway.
+        assert duplicacy.main(["config", "var", "--config", str(tmp_path), " =value"]) == 1
+        assert "surrounding whitespace" in capsys.readouterr().err
+        assert not (tmp_path / "config.yaml").exists()
+
+    def test_rejects_padded_variable_name(self, tmp_path, capsys) -> None:
+        assert duplicacy.main(["config", "var", "--config", str(tmp_path), " duplicacy=/opt/duplicacy"]) == 1
+        assert "surrounding whitespace" in capsys.readouterr().err
+        assert not (tmp_path / "config.yaml").exists()
+
+    def test_rejects_newlines_in_variable_name(self, tmp_path, capsys) -> None:
+        assert duplicacy.main(["config", "var", "--config", str(tmp_path), "dup\nlicacy=/opt/duplicacy"]) == 1
+        assert "newlines" in capsys.readouterr().err
+        assert not (tmp_path / "config.yaml").exists()
+
 
 class TestRetention:
     def test_parses_retention_add(self) -> None:

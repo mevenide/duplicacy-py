@@ -121,6 +121,14 @@ def _run_var(args: argparse.Namespace) -> int:
     if not variable or not value:
         print("Configuration variable must use NAME=VALUE syntax", file=sys.stderr)
         return 1
+    if variable != variable.strip() or not variable.strip():
+        # A whitespace-only or padded name can never be resolved
+        # deliberately afterwards, so reject it before it reaches the file.
+        print("Configuration variable name must not be empty or contain surrounding whitespace", file=sys.stderr)
+        return 1
+    if "\n" in variable:
+        print("Configuration variable name must not contain newlines", file=sys.stderr)
+        return 1
     try:
         path = _cli.save_config(variable, value, args.config)
     except (OSError, TypeError, yaml.YAMLError) as exc:
