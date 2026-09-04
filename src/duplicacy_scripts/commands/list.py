@@ -15,7 +15,7 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
 
 def run(args: argparse.Namespace) -> int:
     """Run ``duplicacy list -all`` and print the unique, sorted snapshot ids."""
-    executable, repo = _cli.prepare_repo(args.config)
+    executable, repo = _cli.prepare_repo(_cli.Config.load(args.config))
     result = _cli.run_cli([executable, "list", "-all"], cwd=repo)
     for snapshot_id in _cli.snapshot_ids(result.stdout):
         print(snapshot_id)

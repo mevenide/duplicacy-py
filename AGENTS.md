@@ -68,21 +68,29 @@ above it. Tests cover `src/duplicacy_scripts/_cli.py` and the common CLI.
   list of args (never a shell), so paths with spaces work on Windows and POSIX.
 - A non-zero CLI exit raises `CliError`; scripts catch it, print to stderr,
   and return exit code 1.
+- Configuration is loaded **once per command run** into
+  `duplicacy_scripts._cli.Config` (`_cli.Config.load(args.config)`), a dataclass
+  holding the resolved `config_dir`, the `config.yaml` path, and the parsed
+  mapping. Its accessors (`executable`, `retention_policy`,
+  `retention_anchor`, `prune_max_ranges_per_command`) read that mapping; write
+  helpers (`save_variable`, `save_retention_policy`, `init`) update it and dump
+  it back. A malformed `config.yaml` raises `CliError` at load time. Do not
+  re-read the config file inside a command — add a `Config` accessor instead.
 - Executable resolution precedence: `load_env()` (a real `DUPLICACY_EXECUTABLE`
   env var, else the value from the working-directory `.env` file), then the
-  `duplicacy` key in `config.yaml`, then `'duplicacy'` on PATH (fails with
+  `duplicacy` key in the loaded `Config`, then `'duplicacy'` on PATH (fails with
   `CliError` if none found).
 - `duplicacy_scripts._cli.load_env()` loads a `.env` file (cwd by default,
-  `override=False`); `resolve_executable` calls it before reading the env var,
+  `override=False`); `Config.executable()` calls it before reading the env var,
   so `DUPLICACY_EXECUTABLE=/path/to/duplicacy` in a `.env` file works. `.env` is
   gitignored and must never hold committed secrets.
 - `uv add <pkg>` updates both `pyproject.toml` and `uv.lock` in one step.
 - Tests use plain `pytest` classes (`TestX`), `monkeypatch`/`capsys` fixtures.
-  To stub the common CLI's CLI call, monkeypatch `run_cli` (and
-  `resolve_executable` if the test would otherwise fail on a missing binary)
-  **on the `duplicacy_scripts._cli` module**, since the command modules call
-  them as `_cli.run_cli`/`_cli.resolve_executable`; stub the interactive prune
-  picker (`select_option`) on `duplicacy_scripts.commands.prune`.
+  To stub the common CLI's CLI call, monkeypatch `run_cli` **on the
+  `duplicacy_scripts._cli` module**; if the test would otherwise fail on a
+  missing binary, stub `Config.executable` on the `duplicacy_scripts._cli`
+  module (`_cli.Config`). Stub the interactive prune picker (`select_option`)
+  on `duplicacy_scripts.commands.prune`.
 
 ## Duplicacy CLI notes (verified against upstream source)
 
@@ -107,7 +115,7 @@ prune script:
   a prune that crashes mid-way leaves `fossils`/`caches` to clean up.
 - Repository discovery: the CLI walks up from the cwd until it finds a
   `.duplicacy` directory, then loads preferences from it; commands pass
-  `cwd=repo_dir(config_dir)` (the `repo` subdirectory of the configuration
+  `cwd=config.repo_dir()` (the `repo` subdirectory of the configuration
   directory) to `run_cli`.
 - Source files worth consulting (fetch raw from GitHub `master` branch):
   - `duplicacy/duplicacy_main.go` — all commands and their flags

@@ -81,11 +81,11 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
     )
 
 
-def _run_init(args: argparse.Namespace) -> int:
+def _run_init(args: argparse.Namespace, config: _cli.Config) -> int:
     """Create the configuration file and initialize the duplicacy repository."""
-    existed = _cli.config_file(args.config).exists()
+    existed = config.path.exists()
     try:
-        path = _cli.init_config(args.config)
+        path = config.init()
     except OSError as exc:
         print(f"Could not write configuration: {exc}", file=sys.stderr)
         return 1
@@ -93,14 +93,13 @@ def _run_init(args: argparse.Namespace) -> int:
         print(f"Configuration already exists at {path}")
     else:
         print(f"Configuration initialized at {path}")
-    repo = _cli.repo_dir(args.config)
+    repo = config.repo_dir()
     if (repo / ".duplicacy" / "preferences").exists():
         print(f"Repository already initialized at {repo}")
         return 0
     try:
         repo.mkdir(parents=True, exist_ok=True)
-        executable = _cli.resolve_executable(config_dir=args.config)
-        result = _cli.run_cli([executable, "init", SNAPSHOT_ID, args.storage], cwd=repo)
+        result = _cli.run_cli([config.executable(), "init", SNAPSHOT_ID, args.storage], cwd=repo)
     except OSError as exc:
         print(f"Could not initialize the repository: {exc}", file=sys.stderr)
         return 1
@@ -111,7 +110,7 @@ def _run_init(args: argparse.Namespace) -> int:
     return 0
 
 
-def _run_var(args: argparse.Namespace) -> int:
+def _run_var(args: argparse.Namespace, config: _cli.Config) -> int:
     """Save a NAME=VALUE configuration variable to the configuration file."""
     try:
         variable, value = args.assignment.split("=", 1)
@@ -130,15 +129,15 @@ def _run_var(args: argparse.Namespace) -> int:
         print("Configuration variable name must not contain newlines", file=sys.stderr)
         return 1
     try:
-        path = _cli.save_config(variable, value, args.config)
-    except (OSError, TypeError, yaml.YAMLError) as exc:
+        path = config.save_variable(variable, value)
+    except (OSError, yaml.YAMLError) as exc:
         print(f"Could not write configuration: {exc}", file=sys.stderr)
         return 1
     print(f"Configuration saved to {path}")
     return 0
 
 
-def _run_retention_add(args: argparse.Namespace) -> int:
+def _run_retention_add(args: argparse.Namespace, config: _cli.Config) -> int:
     """Append an age/frequency entry to the ``retentionPolicy`` configuration."""
     try:
         parse_duration(args.age)
@@ -147,27 +146,27 @@ def _run_retention_add(args: argparse.Namespace) -> int:
         print(exc, file=sys.stderr)
         return 1
     try:
-        entries = _cli.load_retention_policy(args.config)
-    except (OSError, TypeError, yaml.YAMLError, ValueError) as exc:
+        entries = config.retention_policy()
+    except (TypeError, ValueError) as exc:
         print(f"Could not read configuration: {exc}", file=sys.stderr)
         return 1
     entries.append({"age": args.age, "frequency": args.frequency})
     try:
         # Saving validates the whole policy, so an unparsable, non-positive,
         # or duplicate age never reaches the configuration file.
-        path = _cli.save_retention_policy(entries, args.config)
-    except (OSError, TypeError, yaml.YAMLError, ValueError) as exc:
+        path = config.save_retention_policy(entries)
+    except (OSError, yaml.YAMLError, ValueError) as exc:
         print(f"Could not write configuration: {exc}", file=sys.stderr)
         return 1
     print(f"Retention policy saved to {path} ({len(entries)} entr{'y' if len(entries) == 1 else 'ies'})")
     return 0
 
 
-def _run_retention_list(args: argparse.Namespace) -> int:
+def _run_retention_list(args: argparse.Namespace, config: _cli.Config) -> int:
     """Print the ``retentionPolicy`` entries, one indexed line per entry."""
     try:
-        entries = _cli.load_retention_policy(args.config)
-    except (OSError, TypeError, yaml.YAMLError, ValueError) as exc:
+        entries = config.retention_policy()
+    except (TypeError, ValueError) as exc:
         print(f"Could not read configuration: {exc}", file=sys.stderr)
         return 1
     if not entries:
@@ -178,11 +177,11 @@ def _run_retention_list(args: argparse.Namespace) -> int:
     return 0
 
 
-def _run_retention_remove(args: argparse.Namespace) -> int:
+def _run_retention_remove(args: argparse.Namespace, config: _cli.Config) -> int:
     """Remove the ``retentionPolicy`` entry at the given zero-based index."""
     try:
-        entries = _cli.load_retention_policy(args.config)
-    except (OSError, TypeError, yaml.YAMLError, ValueError) as exc:
+        entries = config.retention_policy()
+    except (TypeError, ValueError) as exc:
         print(f"Could not read configuration: {exc}", file=sys.stderr)
         return 1
     if not 0 <= args.index < len(entries):
@@ -190,8 +189,8 @@ def _run_retention_remove(args: argparse.Namespace) -> int:
         return 1
     removed = entries.pop(args.index)
     try:
-        path = _cli.save_retention_policy(entries, args.config)
-    except (OSError, TypeError, yaml.YAMLError, ValueError) as exc:
+        path = config.save_retention_policy(entries)
+    except (OSError, yaml.YAMLError, ValueError) as exc:
         print(f"Could not write configuration: {exc}", file=sys.stderr)
         return 1
     print(
@@ -203,12 +202,13 @@ def _run_retention_remove(args: argparse.Namespace) -> int:
 
 def run(args: argparse.Namespace) -> int:
     """Dispatch to the selected ``config`` subcommand."""
+    config = _cli.Config.load(args.config)
     if args.config_command == "init":
-        return _run_init(args)
+        return _run_init(args, config)
     if args.config_command == "retention-policy":
         if args.retention_command == "add":
-            return _run_retention_add(args)
+            return _run_retention_add(args, config)
         if args.retention_command == "list":
-            return _run_retention_list(args)
-        return _run_retention_remove(args)
-    return _run_var(args)
+            return _run_retention_list(args, config)
+        return _run_retention_remove(args, config)
+    return _run_var(args, config)

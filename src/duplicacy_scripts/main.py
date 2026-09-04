@@ -20,7 +20,7 @@ import argparse
 import sys
 
 from duplicacy_scripts import commands
-from duplicacy_scripts._cli import CliError
+from duplicacy_scripts._cli import CliError, load_env
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -33,7 +33,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Dispatch the parsed command and turn ``CliError`` into exit code 1."""
+    """Dispatch the parsed command and turn ``CliError`` into exit code 1.
+
+    ``load_env()`` is the one ``.env`` load of the run, so the variables it
+    defines (``DUPLICACY_CONFIG_DIR``, ``DUPLICACY_EXECUTABLE``) are in the
+    environment before any command — and so :meth:`Config.load` and
+    :meth:`Config.executable` — reads them.
+    """
+    load_env()
     args = parse_args(argv)
     _, run = commands.COMMANDS[args.command]
     try:

@@ -60,7 +60,7 @@ def _print_retention_summary(policy: list[dict[str, str]], anchor: _cli.Retentio
         print("Retention policy: none (all revisions are kept)", file=sys.stderr)
         return
     print(f"Retention policy: {len(policy)} entr{'y' if len(policy) == 1 else 'ies'}", file=sys.stderr)
-    # parse_duration cannot fail here: load_retention_policy already
+    # parse_duration cannot fail here: config.retention_policy() already
     # validated every age before the summary is printed.
     latest_first = sorted(enumerate(policy), key=lambda indexed: parse_duration(indexed[1]["age"]))
     for index, entry in latest_first:
@@ -229,17 +229,18 @@ def run(args: argparse.Namespace) -> int:
     prints the bucketed kept/pruned listing instead. Nothing is pruned
     with either flag.
     """
-    executable, repo = _cli.prepare_repo(args.config)
-    # load_retention_policy validates the whole policy (unparsable,
+    config = _cli.Config.load(args.config)
+    executable, repo = _cli.prepare_repo(config)
+    # config.retention_policy() validates the whole policy (unparsable,
     # non-positive, or duplicate ages; invalid frequencies),
-    # load_retention_anchor rejects unknown anchors, and
-    # load_prune_max_ranges_per_command rejects non-positive-integer
+    # config.retention_anchor() rejects unknown anchors, and
+    # config.prune_max_ranges_per_command() rejects non-positive-integer
     # range limits, so an invalid configuration exits with an error
     # before the duplicacy CLI runs.
     try:
-        policy = _cli.load_retention_policy(args.config)
-        anchor = _cli.load_retention_anchor(args.config)
-        max_ranges = _cli.load_prune_max_ranges_per_command(args.config)
+        policy = config.retention_policy()
+        anchor = config.retention_anchor()
+        max_ranges = config.prune_max_ranges_per_command()
     except (TypeError, ValueError) as exc:
         print(exc, file=sys.stderr)
         return 1

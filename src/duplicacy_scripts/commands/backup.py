@@ -15,5 +15,5 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
 
 def run(args: argparse.Namespace) -> int:
     """Run ``duplicacy backup`` in the repository directory."""
-    executable, repo = _cli.prepare_repo(args.config)
+    executable, repo = _cli.prepare_repo(_cli.Config.load(args.config))
     return _cli.run_and_print([executable, "backup"], repo)

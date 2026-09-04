@@ -1,16 +1,19 @@
 """Tests for the `duplicacy-py` entry point and its command modules.
 
 The command modules call the shared helpers through the internal
-`duplicacy_scripts._cli` module, so tests stub them there; the interactive
+`duplicacy_scripts._cli` module (loading their configuration via `_cli.Config`),
+so tests stub them there; the interactive
 prune picker is stubbed on `duplicacy_scripts.commands.prune`.
 """
 
 from __future__ import annotations
 
+import os
 from datetime import datetime
 from pathlib import Path
 
 import pytest
+import yaml
 
 from duplicacy_scripts import _cli
 from duplicacy_scripts import main as duplicacy
@@ -35,7 +38,7 @@ class FixedDateTime(datetime):
 
 @pytest.fixture()
 def fake_executable(monkeypatch: pytest.MonkeyPatch) -> str:
-    monkeypatch.setattr(_cli, "resolve_executable", lambda config_dir=None: FAKE_DUPLICACY)
+    monkeypatch.setattr(_cli.Config, "executable", lambda self, *a, **k: FAKE_DUPLICACY)
     return FAKE_DUPLICACY
 
 
@@ -135,6 +138,27 @@ class TestRevisions:
 
 
 class TestMain:
+    def test_loads_dotenv_file_before_dispatching(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # main() is the one load_env() call of a run: the .env variables
+        # (here DUPLICACY_CONFIG_DIR pointing at a sandbox config dir) must
+        # be in the environment before any command — and so Config.load and
+        # the executable resolution — reads them.
+        monkeypatch.delenv("DUPLICACY_CONFIG_DIR", raising=False)
+        config_dir = tmp_path / "sandbox-config"
+        (tmp_path / ".env").write_text(f"DUPLICACY_CONFIG_DIR={config_dir}\n")
+        monkeypatch.chdir(tmp_path)
+        try:
+            argv = ["config", "var", "duplicacy=/opt/duplicacy"]
+            assert duplicacy.main(argv) == 0
+            assert (config_dir / "config.yaml").read_text() == "duplicacy: /opt/duplicacy\n"
+        finally:
+            # load_dotenv() put the variable into os.environ directly; it
+            # was absent before the test, so monkeypatch cannot restore
+            # that state — pop it so it cannot leak into later tests.
+            os.environ.pop("DUPLICACY_CONFIG_DIR", None)
+
     def test_initializes_config_and_repository(
         self,
         tmp_path: Path,
@@ -1079,6 +1103,63 @@ class TestMain:
             "       2 | 2026-08-24 11:00 | kept\n"
             "       3 | 2026-08-24 14:00 | kept\n"
         )
+
+    def test_prune_returns_one_on_malformed_config_yaml(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        fake_executable: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # Regression test: unparsable YAML used to escape as a raw
+        # yaml.YAMLError traceback; the loaded Config now turns it into a
+        # CliError, which main() reports with exit code 1 before anything runs.
+        (tmp_path / "config.yaml").write_text("retentionPolicy: [unclosed\n")
+
+        def fail_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> _cli.CliResult:
+            raise AssertionError("the duplicacy CLI should not run for malformed YAML")
+
+        monkeypatch.setattr(_cli, "run_cli", fail_run_cli)
+
+        assert duplicacy.main(["prune", "--dry-run", "--config", str(tmp_path), "--snapshot-id", "vm"]) == 1
+        assert "config.yaml" in capsys.readouterr().err
+
+    def test_prune_parses_config_yaml_once(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        fake_executable: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # Regression test: prune used to re-read config.yaml for every
+        # setting (policy, anchor, range limit, executable); loading the
+        # Config once must parse the file a single time.
+        (tmp_path / "repo").mkdir()
+        (tmp_path / "config.yaml").write_text(
+            "retentionPolicy:\n- age: 7d\n  frequency: 1d\nretentionAnchor: today\npruneMaxRangesPerCommand: 8\n"
+        )
+        list_output = (
+            "Storage set to /tmp/storage\n"
+            "Snapshot vm revision 3 created at 2026-01-01 10:00\n"
+            "Snapshot vm revision 2 created at 2026-01-01 09:30\n"
+            "Snapshot vm revision 1 created at 2026-01-01 09:00\n"
+        )
+        parse_calls: list[int] = []
+        real_safe_load = yaml.safe_load
+
+        def counting_safe_load(stream: object) -> object:
+            parse_calls.append(1)
+            return real_safe_load(stream)
+
+        def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> _cli.CliResult:
+            return _cli.CliResult(args=args_list, returncode=0, stdout=list_output, stderr="")
+
+        monkeypatch.setattr(yaml, "safe_load", counting_safe_load)
+        monkeypatch.setattr(_cli, "run_cli", fake_run_cli)
+
+        assert duplicacy.main(["prune", "--dry-run", "--config", str(tmp_path), "--snapshot-id", "vm"]) == 0
+        assert len(parse_calls) == 1
+        assert "Would run:" in capsys.readouterr().err
 
     def test_prune_returns_one_on_invalid_retention_anchor(
         self,

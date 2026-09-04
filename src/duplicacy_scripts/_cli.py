@@ -76,77 +76,176 @@ def default_config_dir() -> Path:
     """Return the configuration directory to use when none is given.
 
     The ``DUPLICACY_CONFIG_DIR`` environment variable wins when set; it may
-    also come from a ``.env`` file, because ``load_env()`` runs first — a
-    checkout points ``.env`` at a sandbox configuration directory to keep
-    development runs away from the per-user configuration. Without it, the
-    conventional per-user configuration directory is returned.
+    have been loaded from a ``.env`` file by :meth:`Config.load`, which
+    always runs ``load_env()`` before calling this — a checkout points
+    ``.env`` at a sandbox configuration directory to keep development runs
+    away from the per-user configuration. Without it, the conventional
+    per-user configuration directory is returned.
     """
-    load_env()
     from_env = os.environ.get("DUPLICACY_CONFIG_DIR")
     if from_env:
         return Path(from_env).expanduser()
     return Path(user_config_dir("duplicacy-py"))
 
 
-def config_file(config_dir: str | os.PathLike[str] | None = None) -> Path:
-    """Return the YAML configuration file for ``config_dir``."""
-    return (Path(config_dir) if config_dir else default_config_dir()) / "config.yaml"
+@dataclass
+class Config:
+    """The configuration of one command run, loaded exactly once.
 
-
-def repo_dir(config_dir: str | os.PathLike[str] | None = None) -> Path:
-    """Return the duplicacy repository directory inside ``config_dir``."""
-    return (Path(config_dir) if config_dir else default_config_dir()) / "repo"
-
-
-def load_config(config_dir: str | os.PathLike[str] | None = None) -> dict:
-    """Return the configuration mapping from the configuration file.
-
-    A missing file yields an empty mapping; anything other than a mapping
-    raises ``TypeError``.
+    ``Config.load`` resolves the configuration directory (an explicit
+    ``--config`` value, else :func:`default_config_dir`), reads and parses
+    ``config.yaml`` once, and every accessor reads that parsed mapping —
+    no helper re-reads the file, however many settings a command needs.
     """
-    path = config_file(config_dir)
-    if not path.exists():
-        return {}
-    with path.open() as config_stream:
-        configuration = yaml.safe_load(config_stream) or {}
-    if not isinstance(configuration, dict):
-        raise TypeError(f"{path}: configuration must contain a YAML mapping")
-    return configuration
 
+    config_dir: Path
+    path: Path
+    data: dict
 
-def save_config(
-    variable: str,
-    value: str,
-    config_dir: str | os.PathLike[str] | None = None,
-) -> Path:
-    """Persist a configuration variable and return the configuration path."""
-    path = config_file(config_dir)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    configuration = load_config(config_dir)
-    configuration[variable] = value
-    with path.open("w") as config_stream:
-        yaml.safe_dump(configuration, config_stream, sort_keys=True)
-    return path
+    @classmethod
+    def load(cls, config_dir: str | os.PathLike[str] | None = None) -> Config:
+        """Return the configuration loaded from ``config_dir`` (or the default).
 
+        ``DUPLICACY_CONFIG_DIR`` (for the default directory) and
+        ``DUPLICACY_EXECUTABLE`` (see :meth:`executable`) may come from the
+        working-directory ``.env`` file, which ``main()`` loads via
+        :func:`load_env` before dispatching; a library entry point that does
+        not go through ``main()`` should call ``load_env()`` itself first.
+        A missing file yields an empty configuration. A file that cannot be
+        read, is not valid YAML, or is not a mapping raises ``CliError`` so
+        ``main()`` reports it and every command exits with code 1 — the
+        configuration file itself is broken, which no command can work
+        around.
+        """
+        directory = Path(config_dir) if config_dir else default_config_dir()
+        path = directory / "config.yaml"
+        if not path.exists():
+            return cls(directory, path, {})
+        try:
+            with path.open() as config_stream:
+                configuration = yaml.safe_load(config_stream) or {}
+        except (OSError, yaml.YAMLError) as exc:
+            raise CliError([str(path)], None, str(exc)) from exc
+        if not isinstance(configuration, dict):
+            raise CliError([str(path)], None, "configuration must contain a YAML mapping")
+        return cls(directory, path, configuration)
 
-def load_retention_policy(config_dir: str | os.PathLike[str] | None = None) -> list[dict[str, str]]:
-    """Return the ``retentionPolicy`` entries from the configuration file.
+    def repo_dir(self) -> Path:
+        """Return the duplicacy repository directory inside the configuration directory."""
+        return self.config_dir / "repo"
 
-    Each entry is a mapping with ``age`` and ``frequency`` duration strings.
-    A missing file or key yields an empty list; a non-list or malformed entry
-    raises ``TypeError``, and an invalid policy (unparsable or non-positive
-    age or frequency, or duplicate ages) raises ``ValueError``.
-    """
-    path = config_file(config_dir)
-    policy = load_config(config_dir).get("retentionPolicy", [])
-    if not isinstance(policy, list) or any(
-        not isinstance(entry, dict) or "age" not in entry or "frequency" not in entry
-        for entry in policy
-    ):
-        raise TypeError(f"{path}: retentionPolicy must contain a list of {{age, frequency}} mappings")
-    entries = [{"age": str(entry["age"]), "frequency": str(entry["frequency"])} for entry in policy]
-    validate_retention_policy(entries)
-    return entries
+    def executable(
+        self,
+        explicit: str | None = None,
+        env_var: str = "DUPLICACY_EXECUTABLE",
+        default: str = "duplicacy",
+    ) -> str:
+        """Return the executable to use.
+
+        Precedence: explicit argument (mainly for tests), then ``env_var`` from
+        the process environment (``main()`` has loaded the working-directory
+        ``.env`` file into it), then the ``duplicacy`` key
+        in the loaded configuration, finally the default name looked up on
+        PATH. Raises ``CliError`` if nothing usable is found.
+        """
+        if explicit:
+            return explicit
+        from_env = os.environ.get(env_var)
+        if from_env:
+            return from_env
+        from_config = self.data.get("duplicacy")
+        if from_config:
+            return str(from_config)
+        if shutil.which(default):
+            return default
+        raise CliError(
+            [default],
+            None,
+            f"{default!r} not found on PATH; set {env_var} in the environment or .env, or configure it in config.yaml",
+        )
+
+    def retention_policy(self) -> list[dict[str, str]]:
+        """Return the ``retentionPolicy`` entries from the configuration.
+
+        Each entry is a mapping with ``age`` and ``frequency`` duration strings.
+        A missing file or key yields an empty list; a non-list or malformed entry
+        raises ``TypeError``, and an invalid policy (unparsable or non-positive
+        age or frequency, or duplicate ages) raises ``ValueError``.
+        """
+        policy = self.data.get("retentionPolicy", [])
+        if not isinstance(policy, list) or any(
+            not isinstance(entry, dict) or "age" not in entry or "frequency" not in entry
+            for entry in policy
+        ):
+            raise TypeError(f"{self.path}: retentionPolicy must contain a list of {{age, frequency}} mappings")
+        entries = [{"age": str(entry["age"]), "frequency": str(entry["frequency"])} for entry in policy]
+        validate_retention_policy(entries)
+        return entries
+
+    def retention_anchor(self) -> RetentionAnchor:
+        """Return the :class:`RetentionAnchor` from the configuration.
+
+        The anchor picks the midnight the retention buckets are computed
+        from (see :class:`RetentionAnchor`): a missing key yields
+        ``LATEST_REVISION``; any other value raises ``ValueError`` naming
+        the configuration file and the allowed values.
+        """
+        value = self.data.get(RETENTION_ANCHOR_KEY, RetentionAnchor.LATEST_REVISION)
+        try:
+            return RetentionAnchor(value)
+        except (TypeError, ValueError):
+            # TypeError covers unhashable YAML values (e.g. a list), which
+            # the enum lookup rejects just like an unknown string.
+            allowed = ", ".join(repr(anchor.value) for anchor in RetentionAnchor)
+            raise ValueError(
+                f"{self.path}: {RETENTION_ANCHOR_KEY} must be {allowed} (got {value!r})"
+            ) from None
+
+    def prune_max_ranges_per_command(self) -> int:
+        """Return the maximum ``-r`` ranges merged into one ``duplicacy prune`` command.
+
+        Read from the ``pruneMaxRangesPerCommand`` configuration key: a
+        missing key yields the default (64, enough for any real retention
+        run while keeping the command readable); a value that is not a
+        positive integer (bools included — YAML ``true`` parses as a bool,
+        which is not an integer here) raises ``ValueError`` naming the
+        configuration file and the key.
+        """
+        value = self.data.get(PRUNE_MAX_RANGES_PER_COMMAND_KEY, DEFAULT_PRUNE_MAX_RANGES)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise ValueError(
+                f"{self.path}: {PRUNE_MAX_RANGES_PER_COMMAND_KEY} must be a positive integer (got {value!r})"
+            )
+        return int(value)
+
+    def save_variable(self, variable: str, value: str) -> Path:
+        """Persist a configuration variable and return the configuration path."""
+        self.data[variable] = value
+        return self._dump()
+
+    def save_retention_policy(self, entries: list[dict[str, str]]) -> Path:
+        """Persist ``retentionPolicy`` entries and return the configuration path.
+
+        The entries are validated first (unparsable or non-positive age or
+        frequency, or duplicate ages, raise ``ValueError``) so an invalid policy
+        is never written.
+        """
+        validate_retention_policy(entries)
+        self.data["retentionPolicy"] = entries
+        return self._dump()
+
+    def init(self) -> Path:
+        """Create the configuration file if it does not exist and return its path."""
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.touch()
+        return self.path
+
+    def _dump(self) -> Path:
+        """Write the configuration mapping back to its file and return the path."""
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with self.path.open("w") as config_stream:
+            yaml.safe_dump(self.data, config_stream, sort_keys=True)
+        return self.path
 
 
 RETENTION_ANCHOR_KEY = "retentionAnchor"
@@ -167,109 +266,6 @@ class RetentionAnchor(enum.StrEnum):
 
 PRUNE_MAX_RANGES_PER_COMMAND_KEY = "pruneMaxRangesPerCommand"
 DEFAULT_PRUNE_MAX_RANGES = 64
-
-
-def load_retention_anchor(config_dir: str | os.PathLike[str] | None = None) -> RetentionAnchor:
-    """Return the :class:`RetentionAnchor` from the configuration file.
-
-    The anchor picks the midnight the retention buckets are computed
-    from (see :class:`RetentionAnchor`): a missing key yields
-    ``LATEST_REVISION``; any other value raises ``ValueError`` naming
-    the configuration file and the allowed values.
-    """
-    value = load_config(config_dir).get(RETENTION_ANCHOR_KEY, RetentionAnchor.LATEST_REVISION)
-    try:
-        return RetentionAnchor(value)
-    except (TypeError, ValueError):
-        # TypeError covers unhashable YAML values (e.g. a list), which
-        # the enum lookup rejects just like an unknown string.
-        allowed = ", ".join(repr(anchor.value) for anchor in RetentionAnchor)
-        raise ValueError(
-            f"{config_file(config_dir)}: {RETENTION_ANCHOR_KEY} must be {allowed} (got {value!r})"
-        ) from None
-
-
-def load_prune_max_ranges_per_command(config_dir: str | os.PathLike[str] | None = None) -> int:
-    """Return the maximum ``-r`` ranges merged into one ``duplicacy prune`` command.
-
-    Read from the ``pruneMaxRangesPerCommand`` configuration key: a
-    missing key yields the default (64, enough for any real retention
-    run while keeping the command readable); a value that is not a
-    positive integer (bools included — YAML ``true`` parses as a bool,
-    which is not an integer here) raises ``ValueError`` naming the
-    configuration file and the key.
-    """
-    value = load_config(config_dir).get(PRUNE_MAX_RANGES_PER_COMMAND_KEY, DEFAULT_PRUNE_MAX_RANGES)
-    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-        raise ValueError(
-            f"{config_file(config_dir)}: {PRUNE_MAX_RANGES_PER_COMMAND_KEY} must be a positive integer (got {value!r})"
-        )
-    return int(value)
-
-
-def save_retention_policy(
-    entries: list[dict[str, str]],
-    config_dir: str | os.PathLike[str] | None = None,
-) -> Path:
-    """Persist ``retentionPolicy`` entries and return the configuration path.
-
-    The entries are validated first (unparsable or non-positive age or
-    frequency, or duplicate ages, raise ``ValueError``) so an invalid policy
-    is never written.
-    """
-    validate_retention_policy(entries)
-    path = config_file(config_dir)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    configuration = load_config(config_dir)
-    configuration["retentionPolicy"] = entries
-    with path.open("w") as config_stream:
-        yaml.safe_dump(configuration, config_stream, sort_keys=True)
-    return path
-
-
-def init_config(config_dir: str | os.PathLike[str] | None = None) -> Path:
-    """Create the configuration file if it does not exist and return its path."""
-    path = config_file(config_dir)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.touch()
-    return path
-
-
-def resolve_executable(
-    explicit: str | None = None,
-    env_var: str = "DUPLICACY_EXECUTABLE",
-    default: str = "duplicacy",
-    config_dir: str | os.PathLike[str] | None = None,
-) -> str:
-    """Return the executable to use.
-
-    Precedence: explicit argument (mainly for tests), then ``env_var`` from the
-    process environment or the working-directory ``.env`` file, then the
-    ``duplicacy`` key in the selected config file, finally the default name
-    looked up on PATH. Raises ``CliError`` if nothing usable is found.
-    """
-    if explicit:
-        return explicit
-    load_env()
-    from_env = os.environ.get(env_var)
-    if from_env:
-        return from_env
-    path = config_file(config_dir)
-    if path.exists():
-        with path.open() as config_stream:
-            configuration = yaml.safe_load(config_stream) or {}
-        if not isinstance(configuration, dict):
-            raise CliError([str(path)], None, "configuration must contain a YAML mapping")
-        from_config = configuration.get("duplicacy")
-        if from_config:
-            return str(from_config)
-    if shutil.which(default):
-        return default
-    raise CliError(
-        [default],
-        None,
-        f"{default!r} not found on PATH; set {env_var} in the environment or .env, or configure it in config.yaml",
-    )
 
 
 def run_cli(
@@ -351,14 +347,14 @@ def revisions(output: str) -> list[Revision]:
     return [found[number] for number in sorted(found)]
 
 
-def prepare_repo(config_dir: str | os.PathLike[str] | None) -> tuple[str, Path]:
+def prepare_repo(config: Config) -> tuple[str, Path]:
     """Return the resolved executable and repository directory.
 
     Raises ``CliError`` when the repository directory has not been created by
     ``config init`` yet.
     """
-    executable = resolve_executable(config_dir=config_dir)
-    repo = repo_dir(config_dir)
+    executable = config.executable()
+    repo = config.repo_dir()
     if not repo.is_dir():
         raise CliError(
             ["duplicacy"],
@@ -378,6 +374,9 @@ def run_and_print(args: Sequence[str], repo: str | os.PathLike[str]) -> int:
 __all__ = [
     "CliError",
     "CliResult",
+    "Config",
+    "DEFAULT_PRUNE_MAX_RANGES",
+    "PRUNE_MAX_RANGES_PER_COMMAND_KEY",
     "RETENTION_ANCHOR_KEY",
     "RetentionAnchor",
     "REVISION_LINE",
@@ -385,20 +384,11 @@ __all__ = [
     "Revision",
     "SNAPSHOT_LINE",
     "add_config_argument",
-    "config_file",
     "default_config_dir",
-    "init_config",
-    "load_config",
     "load_env",
-    "load_retention_anchor",
-    "load_retention_policy",
     "prepare_repo",
-    "repo_dir",
-    "resolve_executable",
     "revisions",
     "run_and_print",
     "run_cli",
-    "save_config",
-    "save_retention_policy",
     "snapshot_ids",
 ]
