@@ -30,7 +30,12 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
         help="storage URL to initialize the duplicacy repository with",
     )
 
-    config_var = config_commands.add_parser("var", help="save a configuration variable")
+    supported = _cli.settable_config_variables()
+    config_var = config_commands.add_parser(
+        "var",
+        help="save a configuration variable",
+        description=f"Save a configuration variable (supported variables: {supported})",
+    )
     _cli.add_config_argument(config_var)
     config_var.add_argument(
         "assignment",
@@ -130,6 +135,12 @@ def _run_var(args: argparse.Namespace, config: _cli.Config) -> int:
         return 1
     try:
         path = config.save_variable(variable, value)
+    except ValueError as exc:
+        # save_variable validates the name (against the supported
+        # variables) and pruneMaxRangesPerCommand values, so a typo or a
+        # bad value never reaches the configuration file.
+        print(str(exc), file=sys.stderr)
+        return 1
     except (OSError, yaml.YAMLError) as exc:
         print(f"Could not write configuration: {exc}", file=sys.stderr)
         return 1

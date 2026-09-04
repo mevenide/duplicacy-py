@@ -76,6 +76,16 @@ above it. Tests cover `src/duplicacy_scripts/_cli.py` and the common CLI.
   helpers (`save_variable`, `save_retention_policy`, `init`) update it and dump
   it back. A malformed `config.yaml` raises `CliError` at load time. Do not
   re-read the config file inside a command — add a `Config` accessor instead.
+- The supported `config.yaml` variables are the members of the
+  `duplicacy_scripts._cli.ConfigVariable` StrEnum (`duplicacy`,
+  `retentionAnchor`, `retentionPolicy`, `pruneMaxRangesPerCommand`) — the
+  single source of truth for what is recognized; the supported environment
+  variables are the members of `EnvVariable` (`DUPLICACY_EXECUTABLE`,
+  `DUPLICACY_CONFIG_DIR`). `save_variable` rejects any other name (listing the
+  supported ones, except `retentionPolicy`, which is reserved for
+  `config retention-policy add/remove`) and stores
+  `pruneMaxRangesPerCommand` as an int; `config var` help and error messages
+  list the supported variables via `_cli.settable_config_variables()`.
 - Executable resolution precedence: `load_env()` (a real `DUPLICACY_EXECUTABLE`
   env var, else the value from the working-directory `.env` file), then the
   `duplicacy` key in the loaded `Config`, then `'duplicacy'` on PATH (fails with

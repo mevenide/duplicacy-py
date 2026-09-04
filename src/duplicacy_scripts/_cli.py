@@ -82,10 +82,54 @@ def default_config_dir() -> Path:
     away from the per-user configuration. Without it, the conventional
     per-user configuration directory is returned.
     """
-    from_env = os.environ.get("DUPLICACY_CONFIG_DIR")
+    from_env = os.environ.get(EnvVariable.DUPLICACY_CONFIG_DIR)
     if from_env:
         return Path(from_env).expanduser()
     return Path(user_config_dir("duplicacy-py"))
+
+
+class ConfigVariable(enum.StrEnum):
+    """The variables recognized in ``config.yaml``.
+
+    The values are the YAML key names and the enum is the single list of
+    what is supported: the ``Config`` accessors read through it and
+    ``config var`` rejects any other name, listing these. Members are
+    strings, so they work as ``data`` mapping keys on reads; writes go
+    through ``.value`` because ``yaml.safe_dump`` cannot represent an
+    enum key.
+    """
+
+    DUPLICACY = "duplicacy"
+    RETENTION_ANCHOR = "retentionAnchor"
+    RETENTION_POLICY = "retentionPolicy"
+    PRUNE_MAX_RANGES_PER_COMMAND = "pruneMaxRangesPerCommand"
+
+
+class EnvVariable(enum.StrEnum):
+    """The environment variables the scripts read.
+
+    ``DUPLICACY_EXECUTABLE`` selects the Duplicacy executable (see
+    :meth:`Config.executable`) and ``DUPLICACY_CONFIG_DIR`` the
+    configuration directory (see :func:`default_config_dir`); both may
+    come from a working-directory ``.env`` file loaded by
+    :func:`load_env`.
+    """
+
+    DUPLICACY_EXECUTABLE = "DUPLICACY_EXECUTABLE"
+    DUPLICACY_CONFIG_DIR = "DUPLICACY_CONFIG_DIR"
+
+
+def settable_config_variables() -> str:
+    """Return the configuration variable names ``config var`` can save.
+
+    Every :class:`ConfigVariable` name except ``retentionPolicy``, whose
+    entries are managed by ``config retention-policy`` instead; both the
+    ``config var`` help text and the ``save_variable`` error message list
+    these.
+    """
+    return ", ".join(
+        member.value for member in ConfigVariable if member is not ConfigVariable.RETENTION_POLICY
+    )
 
 
 @dataclass
@@ -137,23 +181,26 @@ class Config:
     def executable(
         self,
         explicit: str | None = None,
-        env_var: str = "DUPLICACY_EXECUTABLE",
+        env_var: EnvVariable = EnvVariable.DUPLICACY_EXECUTABLE,
         default: str = "duplicacy",
     ) -> str:
         """Return the executable to use.
 
-        Precedence: explicit argument (mainly for tests), then ``env_var`` from
-        the process environment (``main()`` has loaded the working-directory
-        ``.env`` file into it), then the ``duplicacy`` key
-        in the loaded configuration, finally the default name looked up on
-        PATH. Raises ``CliError`` if nothing usable is found.
+        Precedence: explicit argument (mainly for tests), then ``env_var``
+        (an :class:`EnvVariable`) from the process environment (``main()``
+        has loaded the working-directory ``.env`` file into it), then the
+        ``duplicacy`` key in the loaded configuration, finally the default
+        name looked up on PATH. Raises ``CliError`` if nothing usable is
+        found; the message shows what ``env_var`` and the ``duplicacy``
+        configuration key currently hold, so a mis-set ``.env`` or
+        configuration file is visible at a glance.
         """
         if explicit:
             return explicit
         from_env = os.environ.get(env_var)
         if from_env:
             return from_env
-        from_config = self.data.get("duplicacy")
+        from_config = self.data.get(ConfigVariable.DUPLICACY)
         if from_config:
             return str(from_config)
         if shutil.which(default):
@@ -161,7 +208,9 @@ class Config:
         raise CliError(
             [default],
             None,
-            f"{default!r} not found on PATH; set {env_var} in the environment or .env, or configure it in config.yaml",
+            f"{default!r} not found on PATH; set {env_var} in the environment or .env, or configure it in config.yaml"
+            f" ({env_var} is currently {from_env!r},"
+            f" config.yaml '{ConfigVariable.DUPLICACY}' is currently {from_config!r})",
         )
 
     def retention_policy(self) -> list[dict[str, str]]:
@@ -172,7 +221,7 @@ class Config:
         raises ``TypeError``, and an invalid policy (unparsable or non-positive
         age or frequency, or duplicate ages) raises ``ValueError``.
         """
-        policy = self.data.get("retentionPolicy", [])
+        policy = self.data.get(ConfigVariable.RETENTION_POLICY, [])
         if not isinstance(policy, list) or any(
             not isinstance(entry, dict) or "age" not in entry or "frequency" not in entry
             for entry in policy
@@ -190,7 +239,7 @@ class Config:
         ``LATEST_REVISION``; any other value raises ``ValueError`` naming
         the configuration file and the allowed values.
         """
-        value = self.data.get(RETENTION_ANCHOR_KEY, RetentionAnchor.LATEST_REVISION)
+        value = self.data.get(ConfigVariable.RETENTION_ANCHOR, RetentionAnchor.LATEST_REVISION)
         try:
             return RetentionAnchor(value)
         except (TypeError, ValueError):
@@ -198,7 +247,7 @@ class Config:
             # the enum lookup rejects just like an unknown string.
             allowed = ", ".join(repr(anchor.value) for anchor in RetentionAnchor)
             raise ValueError(
-                f"{self.path}: {RETENTION_ANCHOR_KEY} must be {allowed} (got {value!r})"
+                f"{self.path}: {ConfigVariable.RETENTION_ANCHOR} must be {allowed} (got {value!r})"
             ) from None
 
     def prune_max_ranges_per_command(self) -> int:
@@ -211,16 +260,54 @@ class Config:
         which is not an integer here) raises ``ValueError`` naming the
         configuration file and the key.
         """
-        value = self.data.get(PRUNE_MAX_RANGES_PER_COMMAND_KEY, DEFAULT_PRUNE_MAX_RANGES)
+        value = self.data.get(ConfigVariable.PRUNE_MAX_RANGES_PER_COMMAND, DEFAULT_PRUNE_MAX_RANGES)
         if isinstance(value, bool) or not isinstance(value, int) or value < 1:
             raise ValueError(
-                f"{self.path}: {PRUNE_MAX_RANGES_PER_COMMAND_KEY} must be a positive integer (got {value!r})"
+                f"{self.path}: {ConfigVariable.PRUNE_MAX_RANGES_PER_COMMAND} must be"
+                f" a positive integer (got {value!r})"
             )
         return int(value)
 
     def save_variable(self, variable: str, value: str) -> Path:
-        """Persist a configuration variable and return the configuration path."""
-        self.data[variable] = value
+        """Persist a configuration variable and return the configuration path.
+
+        ``variable`` must be a supported configuration variable name
+        (:class:`ConfigVariable`); anything else raises ``ValueError``
+        listing the supported names, so a typo (e.g. ``duplicaty``) is
+        rejected instead of being saved and silently ignored later.
+        ``retentionPolicy`` is rejected too: its entries are managed (and
+        validated) by ``config retention-policy``, not by ``config var``.
+        ``pruneMaxRangesPerCommand`` is stored as an integer, matching
+        what :meth:`prune_max_ranges_per_command` reads back.
+        """
+        try:
+            name = ConfigVariable(variable)
+        except ValueError:
+            raise ValueError(
+                f"unsupported configuration variable {variable!r};"
+                f" supported variables: {settable_config_variables()}"
+            ) from None
+        if name is ConfigVariable.RETENTION_POLICY:
+            raise ValueError(
+                f"{name.value} is managed by 'config retention-policy add' and 'config retention-policy remove';"
+                " it cannot be saved with 'config var'"
+            )
+        stored = value
+        if name is ConfigVariable.PRUNE_MAX_RANGES_PER_COMMAND:
+            try:
+                stored = int(value)
+            except ValueError:
+                # An unparsable value would fail every later run; report
+                # the read accessor's message here so the mistake
+                # surfaces at save time instead.
+                stored = 0
+            if stored < 1:
+                raise ValueError(
+                    f"{self.path}: {name.value} must be a positive integer (got {value!r})"
+                ) from None
+        # An enum member key would fail yaml.safe_dump (it cannot
+        # represent enum members), so write the plain name.
+        self.data[name.value] = stored
         return self._dump()
 
     def save_retention_policy(self, entries: list[dict[str, str]]) -> Path:
@@ -231,7 +318,7 @@ class Config:
         is never written.
         """
         validate_retention_policy(entries)
-        self.data["retentionPolicy"] = entries
+        self.data[ConfigVariable.RETENTION_POLICY.value] = entries
         return self._dump()
 
     def init(self) -> Path:
@@ -248,9 +335,6 @@ class Config:
         return self.path
 
 
-RETENTION_ANCHOR_KEY = "retentionAnchor"
-
-
 class RetentionAnchor(enum.StrEnum):
     """The midnight the retention buckets are computed from.
 
@@ -264,7 +348,6 @@ class RetentionAnchor(enum.StrEnum):
     TODAY = "today"
 
 
-PRUNE_MAX_RANGES_PER_COMMAND_KEY = "pruneMaxRangesPerCommand"
 DEFAULT_PRUNE_MAX_RANGES = 64
 
 
@@ -375,9 +458,9 @@ __all__ = [
     "CliError",
     "CliResult",
     "Config",
+    "ConfigVariable",
     "DEFAULT_PRUNE_MAX_RANGES",
-    "PRUNE_MAX_RANGES_PER_COMMAND_KEY",
-    "RETENTION_ANCHOR_KEY",
+    "EnvVariable",
     "RetentionAnchor",
     "REVISION_LINE",
     "REVISION_TIME_FORMAT",
@@ -390,5 +473,6 @@ __all__ = [
     "revisions",
     "run_and_print",
     "run_cli",
+    "settable_config_variables",
     "snapshot_ids",
 ]

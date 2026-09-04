@@ -13,10 +13,12 @@ import yaml
 from duplicacy_scripts._cli import (
     CliError,
     Config,
+    ConfigVariable,
     RetentionAnchor,
     default_config_dir,
     load_env,
     run_cli,
+    settable_config_variables,
 )
 
 
@@ -77,9 +79,18 @@ class TestConfig:
         assert (tmp_path / "config.yaml").read_text() == "duplicacy: /opt/tools/duplicacy\n"
 
     def test_updates_existing_config(self, tmp_path: Path) -> None:
-        Config.load(tmp_path).save_variable("other", "value")
+        Config.load(tmp_path).save_variable("pruneMaxRangesPerCommand", "32")
         Config.load(tmp_path).save_variable("duplicacy", "/opt/tools/duplicacy")
-        assert (tmp_path / "config.yaml").read_text() == "duplicacy: /opt/tools/duplicacy\nother: value\n"
+        assert (tmp_path / "config.yaml").read_text() == (
+            "duplicacy: /opt/tools/duplicacy\npruneMaxRangesPerCommand: 32\n"
+        )
+
+    def test_saves_prune_max_ranges_as_int(self, tmp_path: Path) -> None:
+        # The read accessor requires an int (bools and strings fail), so the
+        # save path coerces and validates the value it stores.
+        Config.load(tmp_path).save_variable("pruneMaxRangesPerCommand", "32")
+        assert (tmp_path / "config.yaml").read_text() == "pruneMaxRangesPerCommand: 32\n"
+        assert Config.load(tmp_path).prune_max_ranges_per_command() == 32
 
     def test_load_returns_mapping(self, tmp_path: Path) -> None:
         Config.load(tmp_path).save_variable("duplicacy", "/opt/tools/duplicacy")
@@ -276,6 +287,82 @@ class TestConfigExecutable:
             Config.load(tmp_path).executable(default="definitely-not-a-real-binary-xyz")
         assert "DUPLICACY_EXECUTABLE" in str(excinfo.value)
         assert "config.yaml" in str(excinfo.value)
+
+    def test_raises_message_shows_unset_variable_values(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        # The error must show what the config variables actually hold, so a
+        # .env that was never loaded is visible at a glance.
+        monkeypatch.delenv("DUPLICACY_EXECUTABLE", raising=False)
+        monkeypatch.setattr(shutil, "which", lambda name: None)
+        with pytest.raises(CliError) as excinfo:
+            Config.load(tmp_path).executable(default="definitely-not-a-real-binary-xyz")
+        assert "DUPLICACY_EXECUTABLE is currently None" in str(excinfo.value)
+        assert "config.yaml 'duplicacy' is currently None" in str(excinfo.value)
+
+    def test_raises_message_shows_empty_variable_values(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        # An empty value does not count as configured either; the message
+        # shows it so an empty .env or config.yaml entry is not mistaken
+        # for a working setting.
+        monkeypatch.setenv("DUPLICACY_EXECUTABLE", "")
+        (tmp_path / "config.yaml").write_text("duplicacy: ''\n")
+        monkeypatch.setattr(shutil, "which", lambda name: None)
+        with pytest.raises(CliError) as excinfo:
+            Config.load(tmp_path).executable(default="definitely-not-a-real-binary-xyz")
+        assert "DUPLICACY_EXECUTABLE is currently ''" in str(excinfo.value)
+        assert "config.yaml 'duplicacy' is currently ''" in str(excinfo.value)
+
+
+class TestConfigVariable:
+    def test_members_are_the_config_yaml_key_names(self) -> None:
+        # The enum values are the YAML keys; the docstring of
+        # ConfigVariable promises these are the only recognized names.
+        assert [member.value for member in ConfigVariable] == [
+            "duplicacy",
+            "retentionAnchor",
+            "retentionPolicy",
+            "pruneMaxRangesPerCommand",
+        ]
+
+    def test_members_are_strings(self) -> None:
+        # StrEnum members must work as `data` mapping keys on reads.
+        assert ConfigVariable.DUPLICACY == "duplicacy"
+
+    def test_settable_variables_exclude_retention_policy(self) -> None:
+        # `config var` cannot save the retention policy; that is what
+        # `config retention-policy add/remove` is for. The listed names are
+        # exactly what save_variable accepts.
+        assert settable_config_variables() == (
+            "duplicacy, retentionAnchor, pruneMaxRangesPerCommand"
+        )
+
+    def test_save_rejects_unknown_name(self, tmp_path: Path) -> None:
+        # A typo (e.g. duplicaty) used to be saved and silently ignored
+        # by every later run; it is rejected now, listing the supported
+        # variables.
+        with pytest.raises(ValueError) as excinfo:
+            Config.load(tmp_path).save_variable("duplicaty", "/opt/tools/duplicacy")
+        assert "unsupported configuration variable 'duplicaty'" in str(excinfo.value)
+        assert "duplicacy, retentionAnchor, pruneMaxRangesPerCommand" in str(excinfo.value)
+        assert not (tmp_path / "config.yaml").exists()
+
+    def test_save_rejects_retention_policy(self, tmp_path: Path) -> None:
+        # The retention policy has its own validated management commands;
+        # saving it with `config var` would bypass the validation.
+        with pytest.raises(ValueError) as excinfo:
+            Config.load(tmp_path).save_variable("retentionPolicy", "value")
+        assert "managed by 'config retention-policy add'" in str(excinfo.value)
+        assert not (tmp_path / "config.yaml").exists()
+
+    def test_save_rejects_non_positive_prune_max_ranges(self, tmp_path: Path) -> None:
+        entries = ("0", "-1", "x", "1.5")
+        for value in entries:
+            with pytest.raises(ValueError) as excinfo:
+                Config.load(tmp_path).save_variable("pruneMaxRangesPerCommand", value)
+            assert "must be a positive integer" in str(excinfo.value)
+            assert not (tmp_path / "config.yaml").exists()
+
+    def test_save_round_trips_retention_anchor(self, tmp_path: Path) -> None:
+        Config.load(tmp_path).save_variable("retentionAnchor", "today")
+        assert Config.load(tmp_path).retention_anchor() is RetentionAnchor.TODAY
 
 
 class TestRunCli:

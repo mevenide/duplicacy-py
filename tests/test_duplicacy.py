@@ -1326,6 +1326,46 @@ class TestMain:
         assert duplicacy.main(["config", "var", "--config", str(tmp_path), "duplicacy"]) == 1
         assert "NAME=VALUE" in capsys.readouterr().err
 
+    def test_rejects_unsupported_variable_name(self, tmp_path, capsys) -> None:
+        # A typo used to be saved and silently ignored; save_variable
+        # validates the name against the supported variables now.
+        assert duplicacy.main(["config", "var", "--config", str(tmp_path), "duplicaty=/opt/duplicacy"]) == 1
+        err = capsys.readouterr().err
+        assert "unsupported configuration variable 'duplicaty'" in err
+        assert "supported variables: duplicacy, retentionAnchor, pruneMaxRangesPerCommand" in err
+        assert not (tmp_path / "config.yaml").exists()
+
+    def test_rejects_retention_policy_variable(self, tmp_path, capsys) -> None:
+        # The retention policy is managed by `config retention-policy`, not
+        # `config var`; saving it would bypass entry validation.
+        assert duplicacy.main(["config", "var", "--config", str(tmp_path), "retentionPolicy=whatever"]) == 1
+        err = capsys.readouterr().err
+        assert "managed by 'config retention-policy add'" in err
+        assert not (tmp_path / "config.yaml").exists()
+
+    def test_rejects_non_positive_prune_max_ranges(self, tmp_path, capsys) -> None:
+        # The value must be a positive integer; the save path validates it
+        # so no later prune run fails on the stored value.
+        assert duplicacy.main(["config", "var", "--config", str(tmp_path), "pruneMaxRangesPerCommand=zero"]) == 1
+        assert "must be a positive integer" in capsys.readouterr().err
+        assert not (tmp_path / "config.yaml").exists()
+
+    def test_saves_prune_max_ranges_as_int(self, tmp_path, capsys) -> None:
+        assert duplicacy.main(["config", "var", "--config", str(tmp_path), "pruneMaxRangesPerCommand=32"]) == 0
+        assert (tmp_path / "config.yaml").read_text() == "pruneMaxRangesPerCommand: 32\n"
+        assert "Configuration saved" in capsys.readouterr().out
+
+    def test_var_help_lists_supported_variables(self, capsys: pytest.CaptureFixture[str]) -> None:
+        with pytest.raises(SystemExit) as excinfo:
+            duplicacy.parse_args(["config", "var", "--help"])
+        assert excinfo.value.code == 0
+        # argparse re-wraps the help text at the terminal width, so match
+        # the list on whitespace-normalized output.
+        out = " ".join(capsys.readouterr().out.split())
+        assert (
+            "supported variables: duplicacy, retentionAnchor, pruneMaxRangesPerCommand" in out
+        )
+
     def test_rejects_whitespace_only_variable_name(self, tmp_path, capsys) -> None:
         # Regression test: a whitespace-only or padded name could never be
         # resolved deliberately afterwards, but it used to be saved anyway.

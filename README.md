@@ -79,8 +79,13 @@ The available commands are:
   configuration file is reported and left untouched, and an already
   initialized `repo` directory is left untouched as well.
 - `config var NAME=VALUE` saves a named configuration variable for future
-  commands (for example `retentionAnchor=today`; see below for the
-  recognised variables).
+  commands (for example `retentionAnchor=today`). The supported variables are
+  `duplicacy`, `retentionAnchor`, and `pruneMaxRangesPerCommand` — anything
+  else (including `retentionPolicy`, which is managed by
+  `config retention-policy add`/`remove`) is rejected with the list, so a
+  typo like `duplicaty=/path` fails immediately instead of being saved and
+  silently ignored later; `uv run duplicacy-py config var --help` also lists
+  them.
 - `config retention-policy add --age <duration> --frequency <duration>` appends
   an entry to the retention policy, a list of `{age, frequency}` entries saved
   under the `retentionPolicy` key in `config.yaml`. Both durations are parsed
