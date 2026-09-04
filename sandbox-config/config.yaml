@@ -1,0 +1,3 @@
+retentionPolicy:
+- age: 3d
+  frequency: 1h

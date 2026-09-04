@@ -12,12 +12,14 @@ import pytest
 from duplicacy_scripts._cli import (
     CliError,
     RetentionAnchor,
+    config_file,
     default_config_dir,
     init_config,
     load_config,
     load_env,
     load_retention_anchor,
     load_retention_policy,
+    repo_dir,
     resolve_executable,
     run_cli,
     save_config,
@@ -26,9 +28,57 @@ from duplicacy_scripts._cli import (
 
 
 class TestConfig:
-    def test_default_config_dir_uses_platformdirs(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_default_config_dir_uses_platformdirs(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        # chdir away from the checkout and clear the variable so a real
+        # .env-configured sandbox cannot shadow the platformdirs fallback.
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("DUPLICACY_CONFIG_DIR", raising=False)
         monkeypatch.setattr("duplicacy_scripts._cli.user_config_dir", lambda app_name: str(tmp_path / app_name))
         assert default_config_dir() == tmp_path / "duplicacy-py"
+
+    def test_env_var_points_default_config_dir_at_sandbox(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        sandbox = tmp_path / "sandbox-config"
+        sandbox.mkdir()
+        monkeypatch.setenv("DUPLICACY_CONFIG_DIR", str(sandbox))
+        assert default_config_dir() == sandbox
+
+    def test_env_var_from_dotenv_file_points_default_config_dir_at_sandbox(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The checkout's gitignored .env sets DUPLICACY_CONFIG_DIR so that
+        # development runs use the sandbox configuration directory.
+        monkeypatch.delenv("DUPLICACY_CONFIG_DIR", raising=False)
+        sandbox = tmp_path / "sandbox-config"
+        sandbox.mkdir()
+        (tmp_path / ".env").write_text(f"DUPLICACY_CONFIG_DIR={sandbox}\n")
+        monkeypatch.chdir(tmp_path)
+        try:
+            assert default_config_dir() == sandbox
+        finally:
+            # load_dotenv() put the variable into os.environ directly; it
+            # was absent before the test, so monkeypatch cannot restore
+            # that state — pop it so it cannot leak into later tests.
+            os.environ.pop("DUPLICACY_CONFIG_DIR", None)
+
+    def test_env_var_expands_user_home(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("DUPLICACY_CONFIG_DIR", "~/sandbox-config")
+        assert default_config_dir() == Path.home() / "sandbox-config"
+
+    def test_env_var_flows_into_config_file_and_repo(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        sandbox = tmp_path / "sandbox-config"
+        sandbox.mkdir()
+        monkeypatch.setenv("DUPLICACY_CONFIG_DIR", str(sandbox))
+        assert config_file() == sandbox / "config.yaml"
+        assert repo_dir() == sandbox / "repo"
+
+    def test_explicit_config_dir_beats_env_var(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        sandbox = tmp_path / "sandbox-config"
+        sandbox.mkdir()
+        monkeypatch.setenv("DUPLICACY_CONFIG_DIR", str(sandbox))
+        explicit = tmp_path / "explicit"
+        explicit.mkdir()
+        assert config_file(explicit) == explicit / "config.yaml"
+        assert repo_dir(explicit) == explicit / "repo"
 
     def test_saves_and_resolves_config(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("DUPLICACY_EXECUTABLE", "")

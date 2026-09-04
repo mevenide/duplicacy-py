@@ -9,9 +9,13 @@ __pycache__/
 # Tooling
 .uv/
 
-# Secrets — never commit storage credentials or passwords
+# Secrets and machine-specific dev settings — never commit
 .env
 *.password
+
+# Dev sandbox configuration (copy of the user config): the duplicacy
+# cache is regenerable and bulky, so only settings are committed
+sandbox-config/repo/.duplicacy/cache/
 
 # IDE
 .idea/

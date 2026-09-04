@@ -256,13 +256,19 @@ class TestMain:
         fake_executable: str,
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
+        tmp_path: Path,
     ) -> None:
         def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> _cli.CliResult:
             raise _cli.CliError(args_list, 1, "Repository has not been initialized")
 
         monkeypatch.setattr(_cli, "run_cli", fake_run_cli)
 
-        assert duplicacy.main(["backup"]) == 1
+        # Pin the config directory so a machine's .env-configured sandbox
+        # cannot change which error the command raises; the repo directory
+        # must exist so prepare_repo passes and run_cli's error surfaces.
+        config_dir = tmp_path / "settings"
+        (config_dir / "repo").mkdir(parents=True)
+        assert duplicacy.main(["backup", "--config", str(config_dir)]) == 1
         assert "Repository has not been initialized" in capsys.readouterr().err
 
     def test_returns_one_when_repo_directory_missing(

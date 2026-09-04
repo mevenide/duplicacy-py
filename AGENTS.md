@@ -16,7 +16,7 @@ are in `src/duplicacy_scripts/`, with tests in `tests/`.
   `duplicacy`; it is resolved via the repo's gitignored `.env` file, which
   contains `DUPLICACY_EXECUTABLE=${HOME}/.local/bin/duplicacy_linux_x64_3.2.5`.
 - Real test storage for end-to-end runs: `${HOME}/tmp/duplicacy-savegames.storage/`,
-  configured in `~/.config/duplicacy-py/repo/.duplicacy/preferences` (snapshot
+  configured in `sandbox-config/repo/.duplicacy/preferences` (snapshot
   id `duplicacy-py-dummy`). `uv run duplicacy-py prune --dry-run --snapshot-id
   Jenna3_user_savegames` from the repo root exercises the full path for real
   (--dry-run only prints the duplicacy prune command(s) that would delete
@@ -27,6 +27,17 @@ are in `src/duplicacy_scripts/`, with tests in `tests/`.
 - If a stub is still needed, create a shell script that echoes plausible output
   and point the script at it via `DUPLICACY_EXECUTABLE` or a `.env` file (the
   stub receives the CLI args as `$*`; its stdout is what the script prints).
+- Dev sandbox configuration: `sandbox-config/` in the repo root is a copy of
+  the user config at `~/.config/duplicacy-py` (`config.yaml` plus the
+  `repo/.duplicacy/preferences` repository definition and the duplicacy
+  cache). The gitignored `.env` file also sets
+  `DUPLICACY_CONFIG_DIR=${HOME}/git/duplicacy-scripts/sandbox-config`, which
+  `duplicacy_scripts._cli.default_config_dir()` honors when no `--config` is
+  given, so development runs inside this checkout always use the sandbox and
+  never touch the user's config. Only pass `--config` explicitly when a
+  different directory is genuinely needed. The sandbox is gitignored
+  (regenerable from the user config; copy it with
+  `cp -a ~/.config/duplicacy-py/. sandbox-config/`).
 
 ## Commands
 

@@ -73,7 +73,18 @@ def load_env(env_file: str | os.PathLike[str] | None = None) -> None:
 
 
 def default_config_dir() -> Path:
-    """Return the conventional per-user configuration directory."""
+    """Return the configuration directory to use when none is given.
+
+    The ``DUPLICACY_CONFIG_DIR`` environment variable wins when set; it may
+    also come from a ``.env`` file, because ``load_env()`` runs first — a
+    checkout points ``.env`` at a sandbox configuration directory to keep
+    development runs away from the per-user configuration. Without it, the
+    conventional per-user configuration directory is returned.
+    """
+    load_env()
+    from_env = os.environ.get("DUPLICACY_CONFIG_DIR")
+    if from_env:
+        return Path(from_env).expanduser()
     return Path(user_config_dir("duplicacy-py"))
 
 
@@ -312,7 +323,10 @@ def add_config_argument(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--config",
         default=None,
-        help="configuration directory (default: platform user config directory)",
+        help=(
+            "configuration directory (default: $DUPLICACY_CONFIG_DIR, "
+            "else the platform user config directory)"
+        ),
     )
 
 

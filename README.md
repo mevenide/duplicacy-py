@@ -98,12 +98,16 @@ The available commands are:
 - `config retention-policy remove INDEX` removes the entry at the zero-based
   index shown by `config retention-policy list`.
 
-Configuration is stored as `config.yaml` in the per-user configuration directory.
+Configuration is stored as `config.yaml` in the configuration directory.
 Use `--config /path/to/config-dir` on any command to select a different directory.
-The default follows the platform conventions provided by the `platformdirs`
-package: `~/.config/duplicacy-py` on Linux, `%APPDATA%\\duplicacy-py` on
-Windows, and `~/Library/Application Support/duplicacy-py` on macOS. Linux also
-honors `XDG_CONFIG_HOME` when it is set.
+When `--config` is omitted, the `DUPLICACY_CONFIG_DIR` environment variable
+wins when set (it may also come from a `.env` file, which a checkout can use
+to point development runs at a sandbox configuration directory away from the
+per-user one). Otherwise the default follows the platform conventions
+provided by the `platformdirs` package: `~/.config/duplicacy-py` on Linux,
+`%APPDATA%\\duplicacy-py` on Windows, and
+`~/Library/Application Support/duplicacy-py` on macOS. Linux also honors
+`XDG_CONFIG_HOME` when it is set.
 
 The `retentionPolicy` key is a list of `{age, frequency}` entries, for example:
 
