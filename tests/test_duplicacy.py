@@ -735,9 +735,14 @@ class TestMain:
             "Snapshot vm revision 9 created at 2026-08-25 10:00\n"
         )
         seen: list[list[str]] = []
+        prune_stdout = "Storage set to /tmp/storage\nPruning snapshot vm\n"
 
         def fake_run_cli(args_list: list[str], cwd: str | None = None, check: bool = True) -> _cli.CliResult:
             seen.append(args_list)
+            if args_list[1] == "prune":
+                return _cli.CliResult(
+                    args=args_list, returncode=0, stdout=prune_stdout, stderr="Storage set to /tmp/storage\n"
+                )
             return _cli.CliResult(
                 args=args_list, returncode=0, stdout=list_output, stderr="Storage set to /tmp/storage\n"
             )
@@ -753,11 +758,14 @@ class TestMain:
             [fake_executable, "prune", "-id", "vm", "-r", "2-3", "-r", "5-6", "-r", "8"],
         ]
         captured = capsys.readouterr()
-        # stdout stays parse-only: the raw duplicacy list output is parsed,
-        # not echoed.
-        assert captured.out == ""
-        # The prune run's diagnostics are forwarded to stderr (once for
-        # the list, once for the prune); nothing is printed-only here.
+        # The prune run's duplicacy output is forwarded to the streams
+        # duplicacy writes: its stdout (where its diagnostics land) to
+        # stdout, its stderr to stderr; the list run's raw output stays
+        # parse-only and is not echoed.
+        assert captured.out == prune_stdout
+        # The forwarded diagnostics follow the informational lines (the
+        # retention summary printed before the duplicacy CLI runs), once
+        # for the list and once for the prune.
         assert captured.err.count("Storage set to /tmp/storage") == 2
         assert "Would run" not in captured.err
 

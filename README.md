@@ -42,8 +42,9 @@ The available commands are:
   - With no flag, the `duplicacy prune` command(s) that delete the pruned
     revisions actually run in the repository (sequential, one command per
     batch — see `pruneMaxRangesPerCommand` below), with duplicacy's own
-    diagnostics forwarded to stderr; a failing command reports the error and
-    stops the run.
+    output forwarded to the streams it writes (its diagnostics and progress
+    go to stdout, its stderr to stderr); a failing command reports the error
+    and stops the run.
   - With `--dry-run`, those commands are printed instead (to stderr,
     never run, as
     `Would run: <executable> prune -id <id> -r <start-end> ...`),

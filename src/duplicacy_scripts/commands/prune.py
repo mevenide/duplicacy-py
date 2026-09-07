@@ -6,11 +6,13 @@ midnight of the current day with ``retentionAnchor: today``.
 
 Without ``--dry-run`` (or ``--analyze``) the command prunes: it runs the
 ``duplicacy prune`` command(s) that delete the pruned revisions in the
-repository. ``--dry-run`` prints those commands instead (to stderr, marked
-"Would run"; nothing is pruned), and ``--analyze`` prints the bucketed
-kept/pruned listing instead. The retention policy and anchor are printed
-to stderr for the user's information before the snapshot id is chosen, the
-policy sorted latest to earliest, keeping stdout parse-only revision output."""
+repository, forwarding duplicacy's own output to the streams it writes
+(stdout to stdout, stderr to stderr). ``--dry-run`` prints those commands
+instead (to stderr, marked "Would run"; nothing is pruned), and
+``--analyze`` prints the bucketed kept/pruned listing instead. The retention
+policy and anchor are printed to stderr for the user's information before
+the snapshot id is chosen, the policy sorted latest to earliest, keeping
+the informational lines off the duplicacy output streams."""
 
 from __future__ import annotations
 
@@ -34,10 +36,11 @@ def select_option(message: str, choices: list[str]) -> str | None:
 
 
 def _print_duplicacy_stderr(stderr: str) -> None:
-    """Forward duplicacy's stderr diagnostics (e.g. ``Storage set to ...``).
+    """Forward duplicacy's stderr diagnostics, if any.
 
-    The duplicacy CLI logs diagnostics to stderr; forwarding them shows the
-    storage context while stdout stays parse-only.
+    Upstream duplicacy logs its diagnostics (e.g. ``Storage set to ...``)
+    to stdout, so this is usually empty; forwarding it keeps any
+    version-specific stderr diagnostics visible.
     """
     if stderr:
         print(stderr, end="", file=sys.stderr)
@@ -141,9 +144,11 @@ def _run_prune_commands(
     """Run the ``duplicacy prune`` commands that delete ``pruned``.
 
     One command per up-to-``max_ranges``-range batch, in order (the
-    commands run sequentially, not in parallel). Duplicacy's own
-    diagnostics are forwarded to stderr so stdout stays parse-only; a
-    failing command reports the error and stops the run (exit 1).
+    commands run sequentially, not in parallel). Duplicacy's own output
+    is forwarded to the streams it writes — stdout to stdout (where its
+    diagnostics and progress land, e.g. ``Storage set to ...``), stderr
+    to stderr; a failing command reports the error and stops the run
+    (exit 1).
     """
     commands = _prune_command_args(snapshot_id, pruned, max_ranges)
     for args in commands:
@@ -152,6 +157,7 @@ def _run_prune_commands(
         except _cli.CliError as exc:
             print(exc, file=sys.stderr)
             return 1
+        print(result.stdout, end="")
         _print_duplicacy_stderr(result.stderr)
     return 0
 
