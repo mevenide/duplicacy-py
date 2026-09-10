@@ -16,12 +16,12 @@ SNAPSHOT_ID = "duplicacy-py-dummy"
 
 def add_parser(subparsers: argparse._SubParsersAction) -> None:
     """Declare the ``config`` subcommand and its nested subcommands."""
-    config = subparsers.add_parser("config", help="manage saved configuration variables")
+    config = subparsers.add_parser("config", help="initialize and manage the configuration")
     config_commands = config.add_subparsers(dest="config_command", required=True)
 
     config_init = config_commands.add_parser(
         "init",
-        help="create the configuration file and initialize a duplicacy repository",
+        help="initialize the configuration and duplicacy repository",
     )
     _cli.add_config_argument(config_init)
     config_init.add_argument(
@@ -51,7 +51,7 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
 
     config_retention = config_commands.add_parser(
         "retention-policy",
-        help="manage retention policy entries (age and frequency duration pairs)",
+        help="manage the retention policy entries",
     )
     retention_commands = config_retention.add_subparsers(dest="retention_command", required=True)
 

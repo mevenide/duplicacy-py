@@ -24,7 +24,14 @@ from duplicacy_scripts._cli import CliError, load_env
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Build the parser from the command registry and parse ``argv``."""
-    parser = argparse.ArgumentParser(description="Run helpers that drive the Duplicacy CLI.")
+    parser = argparse.ArgumentParser(
+        description="Run helpers that drive the Duplicacy CLI.",
+        epilog=(
+            "Use '<command> --help' for details on each command "
+            "(list, prune, and config with its init, var, and "
+            "retention-policy subcommands)."
+        ),
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
     for add_parser, _run in commands.COMMANDS.values():
         add_parser(subparsers)

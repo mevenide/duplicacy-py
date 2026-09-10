@@ -207,22 +207,26 @@ def _print_bucketed_revisions(
 
 def add_parser(subparsers: argparse._SubParsersAction) -> None:
     """Declare the ``prune`` subcommand and its arguments."""
-    parser = subparsers.add_parser("prune", help="prune revisions per the retention policy")
+    parser = subparsers.add_parser(
+        "prune",
+        help="prune revisions per the retention policy",
+        description="Prune the revisions of a snapshot that the retention policy classifies as pruned",
+    )
     _cli.add_config_argument(parser)
     parser.add_argument(
         "--snapshot-id",
         default=None,
-        help="snapshot id to list revisions for (interactive picker when omitted)",
+        help="snapshot id to prune (interactive picker when omitted)",
     )
     parser.add_argument(
         "--analyze",
         action="store_true",
-        help="print the prune preview (the bucketed kept/pruned listing) instead of pruning",
+        help="print the bucketed kept/pruned listing instead of pruning",
     )
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="print (to stderr, never running) the duplicacy prune command(s) that would prune the pruned revisions",
+        help="print the duplicacy prune command(s) that would run, without running them",
     )
 
 
