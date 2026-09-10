@@ -14,10 +14,9 @@ from __future__ import annotations
 import argparse
 from collections.abc import Callable
 
-from . import backup, config, list, prune
+from . import config, list, prune
 
 COMMANDS: dict[str, tuple[Callable[[argparse._SubParsersAction], None], Callable[[argparse.Namespace], int]]] = {
-    "backup": (backup.add_parser, backup.run),
     "list": (list.add_parser, list.run),
     "prune": (prune.add_parser, prune.run),
     "config": (config.add_parser, config.run),

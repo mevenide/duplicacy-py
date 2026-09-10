@@ -58,7 +58,7 @@ above it. Tests cover `src/duplicacy_scripts/_cli.py` and the common CLI.
   `duplicacy-py` through the `[project.scripts]` table in `pyproject.toml`; it
   only assembles the parser, dispatches, and handles `CliError` (printing to
   stderr and returning exit code 1). Each subcommand lives in its own internal
-  module under `src/duplicacy_scripts/commands/` (`backup.py`, `list.py`,
+  module under `src/duplicacy_scripts/commands/` (`list.py`,
   `prune.py`, `config.py`) and must expose `add_parser(subparsers)` and
   `run(args) -> int`; new commands are registered in that package's `COMMANDS`
   table in `src/duplicacy_scripts/commands/__init__.py`. Command modules call

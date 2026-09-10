@@ -1,9 +1,8 @@
 """Common command-line entry point for Duplicacy helpers.
 
-Run a backup, list the snapshot ids, or list the revisions for a snapshot in
-the repository kept in the configuration directory:
+List the snapshot ids, or list the revisions for a snapshot in the
+repository kept in the configuration directory:
 
-    uv run duplicacy-py backup
     uv run duplicacy-py list
     uv run duplicacy-py prune [--snapshot-id <snapshot id>]
     uv run duplicacy-py config init --storage <storage url>

@@ -47,10 +47,9 @@ class TestParseArgs:
         with pytest.raises(SystemExit):
             duplicacy.parse_args([])
 
-    def test_parses_backup(self) -> None:
-        args = duplicacy.parse_args(["backup", "--config", "/tmp/settings"])
-        assert args.command == "backup"
-        assert args.config == "/tmp/settings"
+    def test_rejects_backup_command(self) -> None:
+        with pytest.raises(SystemExit):
+            duplicacy.parse_args(["backup"])
 
     def test_parses_list(self) -> None:
         args = duplicacy.parse_args(["list"])
@@ -88,7 +87,7 @@ class TestParseArgs:
 
     def test_does_not_parse_duplicacy_argument(self) -> None:
         with pytest.raises(SystemExit):
-            duplicacy.parse_args(["backup", "--duplicacy", "/opt/duplicacy"])
+            duplicacy.parse_args(["list", "--duplicacy", "/opt/duplicacy"])
 
     def test_parses_config_init(self) -> None:
         args = duplicacy.parse_args(
@@ -256,10 +255,10 @@ class TestMain:
         ("argv", "expected_args", "output", "printed", "cwd_name"),
         [
             (
-                ["backup", "--config", "/tmp/settings"],
-                ["backup"],
-                "Backup complete\n",
-                "Backup complete\n",
+                ["list", "--config", "/tmp/settings"],
+                ["list", "-all"],
+                "Snapshot vm revision 5 created at 2026-01-01 10:00\n",
+                "vm\n",
                 "/tmp/settings/repo",
             ),
             (
@@ -314,7 +313,7 @@ class TestMain:
         # must exist so prepare_repo passes and run_cli's error surfaces.
         config_dir = tmp_path / "settings"
         (config_dir / "repo").mkdir(parents=True)
-        assert duplicacy.main(["backup", "--config", str(config_dir)]) == 1
+        assert duplicacy.main(["list", "--config", str(config_dir)]) == 1
         assert "Repository has not been initialized" in capsys.readouterr().err
 
     def test_returns_one_when_repo_directory_missing(
@@ -331,7 +330,7 @@ class TestMain:
 
         config_dir = tmp_path / "settings"
         config_dir.mkdir()
-        argv = ["backup", "--config", str(config_dir)]
+        argv = ["list", "--config", str(config_dir)]
         assert duplicacy.main(argv) == 1
         error = capsys.readouterr().err
         assert "Repository directory does not exist" in error

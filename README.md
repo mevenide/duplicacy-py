@@ -11,7 +11,6 @@ Python scripts for driving the [Duplicacy](https://github.com/gilbertchen/duplic
 Run the installed CLI with a command:
 
 ```sh
-uv run duplicacy-py backup
 uv run duplicacy-py list
 uv run duplicacy-py prune [--analyze|--dry-run] --snapshot-id <snapshot id>
 uv run duplicacy-py config init --storage <storage url>
@@ -21,8 +20,6 @@ uv run duplicacy-py config retention-policy add --age 7d --frequency 1h
 
 The available commands are:
 
-- `backup` runs `duplicacy backup` in the `repo` subdirectory of the
-  configuration directory.
 - `list` prints the snapshot ids found in the repository (one per line,
   sorted, duplicates removed).
 - `prune [--analyze|--dry-run] [--snapshot-id <snapshot id>]` prunes the revisions the
@@ -192,7 +189,7 @@ time of day (or every 15/30 minutes past the hour) across runs.
 The console command is declared in `pyproject.toml` and points to the
 `duplicacy_scripts.main:main` entry point. The entry point assembles the
 parser and dispatches; each subcommand lives in its own internal module under
-`src/duplicacy_scripts/commands/` (`backup.py`, `list.py`, `prune.py`,
+`src/duplicacy_scripts/commands/` (`list.py`, `prune.py`,
 `config.py`), registered in that package's `COMMANDS` table, with shared
 CLI-driving helpers in the internal module `src/duplicacy_scripts/_cli.py`.
 
