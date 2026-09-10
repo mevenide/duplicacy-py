@@ -24,7 +24,11 @@ from duplicacy_scripts._cli import CliError, load_env
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Build the parser from the command registry and parse ``argv``."""
+    # prog pins the usage-line program name to `duplicacy-py`: argparse
+    # otherwise derives it from basename(sys.argv[0]), which on Windows is
+    # the `python.exe <script path>` invocation and shows that pair instead.
     parser = argparse.ArgumentParser(
+        prog="duplicacy-py",
         description="Run helpers that drive the Duplicacy CLI.",
         epilog=(
             "Use '<command> --help' for details on each command "
