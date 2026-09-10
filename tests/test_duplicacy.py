@@ -99,6 +99,28 @@ class TestParseArgs:
         assert args.config == "/tmp/settings"
         assert args.storage == "/tmp/storage"
 
+    def test_parses_config_var_save(self) -> None:
+        args = duplicacy.parse_args(["config", "var", "duplicacy=/opt/duplicacy"])
+        assert args.command == "config"
+        assert args.config_command == "var"
+        assert args.assignment == "duplicacy=/opt/duplicacy"
+        assert not args.list
+
+    def test_parses_config_var_list(self) -> None:
+        args = duplicacy.parse_args(["config", "var"])
+        assert args.command == "config"
+        assert args.config_command == "var"
+        assert args.assignment is None
+        assert not args.list
+
+        args_flag = duplicacy.parse_args(["config", "var", "--list"])
+        assert args_flag.assignment is None
+        assert args_flag.list
+
+        args_short = duplicacy.parse_args(["config", "var", "-l"])
+        assert args_short.assignment is None
+        assert args_short.list
+
     def test_config_init_requires_storage(self) -> None:
         with pytest.raises(SystemExit):
             duplicacy.parse_args(["config", "init"])
@@ -1390,6 +1412,40 @@ class TestMain:
         assert duplicacy.main(["config", "var", "--config", str(tmp_path), "dup\nlicacy=/opt/duplicacy"]) == 1
         assert "newlines" in capsys.readouterr().err
         assert not (tmp_path / "config.yaml").exists()
+
+    def test_lists_config_variables_with_no_args(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+        (tmp_path / "config.yaml").write_text("duplicacy: /opt/duplicacy\npruneMaxRangesPerCommand: 32\n")
+        assert duplicacy.main(["config", "var", "--config", str(tmp_path)]) == 0
+        assert capsys.readouterr().out == "duplicacy=/opt/duplicacy\npruneMaxRangesPerCommand=32\n"
+
+    def test_lists_config_variables_with_list_flag(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+        (tmp_path / "config.yaml").write_text("duplicacy: /opt/duplicacy\n")
+        assert duplicacy.main(["config", "var", "--list", "--config", str(tmp_path)]) == 0
+        assert capsys.readouterr().out == "duplicacy=/opt/duplicacy\n"
+
+        assert duplicacy.main(["config", "var", "-l", "--config", str(tmp_path)]) == 0
+        assert capsys.readouterr().out == "duplicacy=/opt/duplicacy\n"
+
+    def test_lists_empty_config_variables(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+        assert duplicacy.main(["config", "var", "--config", str(tmp_path)]) == 0
+        assert "No configuration variables configured" in capsys.readouterr().out
+
+    def test_lists_config_variables_excludes_retention_policy(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        (tmp_path / "config.yaml").write_text(
+            "duplicacy: /opt/duplicacy\nretentionPolicy:\n- age: 7d\n  frequency: 1h\n"
+        )
+        assert duplicacy.main(["config", "var", "--config", str(tmp_path)]) == 0
+        assert capsys.readouterr().out == "duplicacy=/opt/duplicacy\n"
+
+    def test_rejects_combining_list_flag_with_assignment(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        assert (
+            duplicacy.main(["config", "var", "--list", "--config", str(tmp_path), "duplicacy=/opt/duplicacy"]) == 1
+        )
+        assert "Cannot combine --list with a variable assignment" in capsys.readouterr().err
 
 
 class TestRetention:

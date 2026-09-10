@@ -13,6 +13,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import yaml
 from dotenv import find_dotenv, load_dotenv
@@ -267,6 +268,20 @@ class Config:
                 f" a positive integer (got {value!r})"
             )
         return int(value)
+
+    def variables(self) -> dict[str, Any]:
+        """Return the saved configuration variables (excluding ``retentionPolicy``).
+
+        Recognized :class:`ConfigVariable` members other than
+        ``retentionPolicy`` (which is managed by :meth:`retention_policy`)
+        that are present in the configuration are returned, in their
+        definition order.
+        """
+        return {
+            member.value: self.data[member.value]
+            for member in ConfigVariable
+            if member is not ConfigVariable.RETENTION_POLICY and member.value in self.data
+        }
 
     def save_variable(self, variable: str, value: str) -> Path:
         """Persist a configuration variable and return the configuration path.

@@ -33,12 +33,19 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
     supported = _cli.settable_config_variables()
     config_var = config_commands.add_parser(
         "var",
-        help="save a configuration variable",
-        description=f"Save a configuration variable (supported variables: {supported})",
+        help="save or list configuration variables",
+        description=f"Save or list configuration variables (supported variables: {supported})",
     )
     _cli.add_config_argument(config_var)
     config_var.add_argument(
+        "--list",
+        "-l",
+        action="store_true",
+        help="list current configuration variables",
+    )
+    config_var.add_argument(
         "assignment",
+        nargs="?",
         help="configuration variable assignment (for example, duplicacy=/path/to/duplicacy)",
     )
 
@@ -115,8 +122,24 @@ def _run_init(args: argparse.Namespace, config: _cli.Config) -> int:
     return 0
 
 
+def _run_var_list(config: _cli.Config) -> int:
+    """Print the saved configuration variables, one per line."""
+    variables = config.variables()
+    if not variables:
+        print("No configuration variables configured")
+        return 0
+    for name, value in variables.items():
+        print(f"{name}={value}")
+    return 0
+
+
 def _run_var(args: argparse.Namespace, config: _cli.Config) -> int:
-    """Save a NAME=VALUE configuration variable to the configuration file."""
+    """Save a NAME=VALUE configuration variable or list current variables."""
+    if args.list and args.assignment:
+        print("Cannot combine --list with a variable assignment", file=sys.stderr)
+        return 1
+    if args.list or args.assignment is None:
+        return _run_var_list(config)
     try:
         variable, value = args.assignment.split("=", 1)
     except ValueError:

@@ -79,8 +79,9 @@ The available commands are:
   configuration directory (snapshot id: `duplicacy-py-dummy`). An existing
   configuration file is reported and left untouched, and an already
   initialized `repo` directory is left untouched as well.
-- `config var NAME=VALUE` saves a named configuration variable for future
-  commands (for example `retentionAnchor=today`). The supported variables are
+- `config var [NAME=VALUE]` saves a named configuration variable for future
+  commands (for example `retentionAnchor=today`), or lists current configuration
+  variables when invoked without arguments or with `--list` (`-l`). The supported variables are
   `duplicacy`, `retentionAnchor`, and `pruneMaxRangesPerCommand` — anything
   else (including `retentionPolicy`, which is managed by
   `config retention-policy add`/`remove`) is rejected with the list, so a

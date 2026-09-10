@@ -102,6 +102,28 @@ class TestConfig:
         assert config.path == tmp_path / "config.yaml"
         assert config.config_dir == tmp_path
 
+    def test_variables_empty_when_no_config(self, tmp_path: Path) -> None:
+        assert Config.load(tmp_path).variables() == {}
+
+    def test_variables_returns_saved_variables(self, tmp_path: Path) -> None:
+        config = Config.load(tmp_path)
+        config.save_variable("duplicacy", "/opt/tools/duplicacy")
+        config.save_variable("pruneMaxRangesPerCommand", "32")
+        assert config.variables() == {
+            "duplicacy": "/opt/tools/duplicacy",
+            "pruneMaxRangesPerCommand": 32,
+        }
+
+    def test_variables_excludes_retention_policy(self, tmp_path: Path) -> None:
+        config = Config.load(tmp_path)
+        config.save_variable("duplicacy", "/opt/tools/duplicacy")
+        config.save_retention_policy([{"age": "7d", "frequency": "1h"}])
+        assert config.variables() == {"duplicacy": "/opt/tools/duplicacy"}
+
+    def test_variables_excludes_unsupported_variables(self, tmp_path: Path) -> None:
+        (tmp_path / "config.yaml").write_text("duplicacy: /opt/tools/duplicacy\nunsupportedKey: foo\n")
+        assert Config.load(tmp_path).variables() == {"duplicacy": "/opt/tools/duplicacy"}
+
     def test_rejects_non_mapping(self, tmp_path: Path) -> None:
         # A file that is not a mapping is a broken configuration file: it
         # surfaces as a CliError (reported by main(), exit code 1) instead
